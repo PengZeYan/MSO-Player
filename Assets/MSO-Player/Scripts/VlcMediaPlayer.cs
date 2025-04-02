@@ -308,39 +308,75 @@ namespace yan.libvlc
         /// </summary>
         private void TrackReaderThread()
         {
-            const int MAX_TRACK_ATTEMPTS = 30;
+            const int MAX_TRACK_ATTEMPTS = 60; // 增加尝试次数
             int trackGetAttempts = 0;
             
-            while (_isRunning && trackGetAttempts < MAX_TRACK_ATTEMPTS && !_cancel)
+            try 
             {
-                libvlc_video_track_t? track = GetVideoTrack();
-
-                if (track.HasValue)
+                // 先等待播放开始
+                Thread.Sleep(1000); // 等待1秒，让播放器有足够时间初始化
+                
+                while (_isRunning && trackGetAttempts < MAX_TRACK_ATTEMPTS && !_cancel)
                 {
-                    _videoTrack = track;
-
-                    if (_width <= 0 || _height <= 0)
+                    try
                     {
-                        _width = (int)_videoTrack.Value.i_width;
-                        _height = (int)_videoTrack.Value.i_height;
-                        LibVLCWrapper.libvlc_video_set_format(
-                            _mediaPlayer, 
-                            "RV24", 
-                            _videoTrack.Value.i_width, 
-                            _videoTrack.Value.i_height, 
-                            (uint)_width * (uint)_channels
-                        );
+                        // 检查媒体是否开始播放
+                        libvlc_state_t state = State;
+                        if (state == libvlc_state_t.libvlc_Error)
+                        {
+                            Debug.LogError($"媒体播放出错，无法获取轨道信息");
+                            break;
+                        }
+                        
+                        libvlc_video_track_t? track = GetVideoTrack();
+
+                        if (track.HasValue)
+                        {
+                            _videoTrack = track;
+
+                            if (_width <= 0 || _height <= 0)
+                            {
+                                _width = (int)_videoTrack.Value.i_width;
+                                _height = (int)_videoTrack.Value.i_height;
+                                
+                                // 确保分辨率合理
+                                if (_width <= 0) _width = 1280;
+                                if (_height <= 0) _height = 720;
+                                
+                                LibVLCWrapper.libvlc_video_set_format(
+                                    _mediaPlayer, 
+                                    "RV24", 
+                                    (uint)_width,
+                                    (uint)_height, 
+                                    (uint)_width * (uint)_channels
+                                );
+                            }
+                            break;
+                        }
+
+                        trackGetAttempts++;
+                        
+                        // 增加指数退避策略，随着尝试次数增加等待时间
+                        int sleepTime = Math.Min(500 + (100 * trackGetAttempts), 2000);
+                        Thread.Sleep(sleepTime);
                     }
-                    break;
+                    catch (Exception ex)
+                    {
+                        Debug.LogError($"获取视频轨道时发生异常: {ex.Message}");
+                        Thread.Sleep(500);
+                        trackGetAttempts++;
+                    }
                 }
 
-                trackGetAttempts++;
-                Thread.Sleep(500);
+                if (trackGetAttempts >= MAX_TRACK_ATTEMPTS)
+                {
+                    string errorMsg = "已超过最大尝试获取视频轨道次数，打开失败";
+                    Debug.LogError(errorMsg);
+                }
             }
-
-            if (trackGetAttempts >= MAX_TRACK_ATTEMPTS)
+            catch (Exception ex)
             {
-                Debug.LogError("已超过最大尝试获取视频轨道次数，打开失败");
+                Debug.LogError($"轨道读取线程异常: {ex.Message}");
             }
         }
 
@@ -349,23 +385,59 @@ namespace yan.libvlc
         /// </summary>
         private libvlc_video_track_t? GetVideoTrack()
         {
-            libvlc_video_track_t? videoTrack = null;
-            IntPtr tracksPtr;
-            int tracks = LibVLCWrapper.libvlc_media_tracks_get(_media, out tracksPtr);
-
-            _tracks = tracks;
-            _trackToRelease = tracksPtr;
-
-            for (int i = 0; i < tracks; i++)
+            if (_media == IntPtr.Zero)
             {
-                IntPtr trackPtr = Marshal.ReadIntPtr(tracksPtr, i * IntPtr.Size);
-                libvlc_media_track_t track = Marshal.PtrToStructure<libvlc_media_track_t>(trackPtr);
-
-                if (track.i_type == libvlc_track_type_t.libvlc_track_video)
+                Debug.LogError("尝试获取轨道但媒体指针为null");
+                return null;
+            }
+            
+            libvlc_video_track_t? videoTrack = null;
+            IntPtr tracksPtr = IntPtr.Zero;
+            int tracks = 0;
+            
+            try
+            {
+                tracks = LibVLCWrapper.libvlc_media_tracks_get(_media, out tracksPtr);
+                
+                if (tracksPtr == IntPtr.Zero)
                 {
-                    videoTrack = Marshal.PtrToStructure<libvlc_video_track_t>(track.media);
-                    break;
+                    return null;
                 }
+
+                _tracks = tracks;
+                _trackToRelease = tracksPtr;
+
+                for (int i = 0; i < tracks; i++)
+                {
+                    IntPtr trackPtr = Marshal.ReadIntPtr(tracksPtr, i * IntPtr.Size);
+                    if (trackPtr == IntPtr.Zero) continue;
+                    
+                    libvlc_media_track_t track = Marshal.PtrToStructure<libvlc_media_track_t>(trackPtr);
+
+                    if (track.i_type == libvlc_track_type_t.libvlc_track_video && track.media != IntPtr.Zero)
+                    {
+                        try
+                        {
+                            videoTrack = Marshal.PtrToStructure<libvlc_video_track_t>(track.media);
+                            // 检查宽高是否合理
+                            if (videoTrack.Value.i_width == 0 || videoTrack.Value.i_height == 0)
+                            {
+                                videoTrack = null;
+                                continue;
+                            }
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.LogError($"解析视频轨道结构时发生错误: {ex.Message}");
+                            videoTrack = null;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"获取视频轨道时发生异常: {ex.Message}");
             }
 
             return videoTrack;

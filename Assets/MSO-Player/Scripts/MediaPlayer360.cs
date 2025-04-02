@@ -309,6 +309,16 @@ namespace yan.libvlc
         /// </summary>
         private void CreatePlayer()
         {
+            // 检查分辨率
+            if (m_Width > 4096 || m_Height > 4096)
+            {
+                Debug.LogWarning($"全景视频分辨率过高({m_Width}x{m_Height})，可能导致性能问题，已调整为合理值");
+                // 对于全景视频，设置一个合理的上限值
+                if (m_Width > 4096) m_Width = 4096;
+                if (m_Height > 4096) m_Height = 2048;
+            }
+            
+            Debug.Log($"正在创建360度视频播放器，分辨率: {m_Width}x{m_Height}");
             m_Player = new VlcMediaPlayer(m_Width, m_Height, m_Url, m_Mute);
             
             if (m_Texture == null)
