@@ -76,6 +76,11 @@ namespace yan.libvlc
         public UnityAction<string> OnMediaPlayerStateEvent;
 
         /// <summary>
+        /// 当媒体播放发生错误时触发的事件
+        /// </summary>
+        public UnityAction<string> OnMediaPlayerErrorEvent;
+
+        /// <summary>
         /// 获取当前媒体URL
         /// </summary>
         public string Url => m_Url;
@@ -436,6 +441,22 @@ namespace yan.libvlc
                 {
                     m_CurrentMediaState = state;
                     OnMediaPlayerStateEvent?.Invoke(StateToString(state));
+                    
+                    // 检测错误状态并触发错误事件
+                    if (state == libvlc_state_t.libvlc_Error)
+                    {
+                        string errorMessage = $"播放全景视频 {m_Url} 时发生错误";
+                        
+                        // 获取VLC的具体错误信息
+                        string vlcError = m_Player.GetErrorMessage();
+                        if (!string.IsNullOrEmpty(vlcError))
+                        {
+                            errorMessage += $": {vlcError}";
+                        }
+                        
+                        Debug.LogError(errorMessage);
+                        OnMediaPlayerErrorEvent?.Invoke(errorMessage);
+                    }
                 }
                 
                 yield return wait;

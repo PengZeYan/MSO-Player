@@ -143,6 +143,23 @@ namespace yan.libvlc
 
         #endregion
 
+        #region 错误处理
+
+        /// <summary>
+        /// 获取最后一个LibVLC错误的人类可读错误消息
+        /// </summary>
+        /// <returns>错误消息的指针，如果没有错误则为NULL</returns>
+        [DllImport("libvlc")]
+        internal static extern IntPtr libvlc_errmsg();
+
+        /// <summary>
+        /// 清除LibVLC错误状态
+        /// </summary>
+        [DllImport("libvlc")]
+        internal static extern void libvlc_clearerr();
+
+        #endregion
+
         #region 实例管理
 
         /// <summary>

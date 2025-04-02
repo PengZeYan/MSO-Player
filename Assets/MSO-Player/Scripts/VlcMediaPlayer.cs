@@ -203,6 +203,23 @@ namespace yan.libvlc
             }
         }
 
+        /// <summary>
+        /// 获取当前的VLC错误信息
+        /// </summary>
+        /// <returns>错误信息字符串，如果没有错误则返回空字符串</returns>
+        public string GetErrorMessage()
+        {
+            if (_libvlc == IntPtr.Zero)
+                return "LibVLC实例为空";
+
+            IntPtr errorPtr = LibVLCWrapper.libvlc_errmsg();
+            if (errorPtr == IntPtr.Zero)
+                return "无错误信息";
+
+            string error = Marshal.PtrToStringAnsi(errorPtr);
+            return string.IsNullOrEmpty(error) ? "未知错误" : error;
+        }
+
         #endregion
 
         #region 私有方法
