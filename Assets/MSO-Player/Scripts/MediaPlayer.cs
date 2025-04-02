@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -166,7 +167,17 @@ namespace yan.libvlc
         public void Stop()
         {
             CheckEditorPlaying();
-            m_Player?.Stop();
+            try
+            {
+                if (m_Player != null)
+                {
+                    m_Player.Stop();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"停止播放时发生错误: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -292,18 +303,50 @@ namespace yan.libvlc
         /// </summary>
         private void CleanupResources()
         {
-            StopAllCoroutines();
-            
-            if (m_Player != null)
+            try
             {
-                m_Player.Dispose();
-                m_Player = null;
+                StopAllCoroutines();
+                
+                if (m_Player != null)
+                {
+                    try
+                    {
+                        m_Player.Stop();
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogError($"停止播放时发生错误: {ex.Message}");
+                    }
+                    
+                    try
+                    {
+                        m_Player.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogError($"释放播放器资源时发生错误: {ex.Message}");
+                    }
+                    
+                    m_Player = null;
+                }
+                
+                if (m_Texture != null)
+                {
+                    try
+                    {
+                        Destroy(m_Texture);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogError($"销毁纹理时发生错误: {ex.Message}");
+                    }
+                    
+                    m_Texture = null;
+                }
             }
-            
-            if (m_Texture != null)
+            catch (Exception ex)
             {
-                Destroy(m_Texture);
-                m_Texture = null;
+                Debug.LogError($"清理资源时发生错误: {ex.Message}");
             }
         }
 

@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 using UnityEngine;
+using System.Collections.Generic;
 
 namespace yan.libvlc
 {
@@ -17,9 +18,10 @@ namespace yan.libvlc
         private IntPtr _mediaPlayer;
         private IntPtr _imageIntPtr;
         
-        private LockCB _lockCallback;
-        private UnlockCB _unlockCallback;
-        private DisplayCB _displayCallback;
+        // 使用静态委托替代实例委托
+        private static LockCB _lockCallback;
+        private static UnlockCB _unlockCallback;
+        private static DisplayCB _displayCallback;
         private GCHandle _gcHandle;
 
         private byte[] _currentImage;
@@ -28,6 +30,9 @@ namespace yan.libvlc
         private int _width = 480;
         private int _height = 256;
         private int _channels = 3;
+        
+        // 用于静态回调方法访问实例的静态字典
+        private static Dictionary<IntPtr, VlcMediaPlayer> _playerInstances = new Dictionary<IntPtr, VlcMediaPlayer>();
         
         private const string DEFAULT_ARGS = "--ignore-config;--no-xlib;--no-video-title-show;--no-osd";
         private libvlc_video_track_t? _videoTrack = null;
@@ -170,10 +175,32 @@ namespace yan.libvlc
         /// </summary>
         public void Dispose()
         {
-            _cancel = true;
-            _isRunning = false;
+            try
+            {
+                // 标记为取消
+                _cancel = true;
+                _isRunning = false;
 
-            ReleaseResources();
+                // 确保停止播放
+                try
+                {
+                    if (_mediaPlayer != IntPtr.Zero)
+                    {
+                        LibVLCWrapper.libvlc_media_player_stop(_mediaPlayer);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"停止播放时发生错误: {ex.Message}");
+                }
+
+                // 释放所有资源
+                ReleaseResources();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"释放VLC播放器时发生错误: {ex.Message}");
+            }
         }
 
         #endregion
@@ -217,16 +244,24 @@ namespace yan.libvlc
         /// </summary>
         private void SetupCallbacks()
         {
-            _lockCallback = OnLock;
-            _unlockCallback = OnUnlock;
-            _displayCallback = OnDisplay;
+            // 初始化静态委托（如果尚未初始化）
+            if (_lockCallback == null)
+            {
+                _lockCallback = OnLockStatic;
+                _unlockCallback = OnUnlockStatic;
+                _displayCallback = OnDisplayStatic;
+            }
+
+            // 将实例添加到静态字典
+            IntPtr instancePtr = GCHandle.ToIntPtr(_gcHandle);
+            _playerInstances[instancePtr] = this;
 
             LibVLCWrapper.libvlc_video_set_callbacks(
                 _mediaPlayer, 
                 _lockCallback, 
                 _unlockCallback, 
                 _displayCallback, 
-                GCHandle.ToIntPtr(_gcHandle)
+                instancePtr
             );
 
             LibVLCWrapper.libvlc_video_set_format(
@@ -324,39 +359,53 @@ namespace yan.libvlc
         /// </summary>
         private void ReleaseResources()
         {
-            if (_trackToRelease != IntPtr.Zero)
+            try
             {
-                LibVLCWrapper.libvlc_media_tracks_release(_trackToRelease, _tracks);
-                _trackToRelease = IntPtr.Zero;
-            }
+                // 从静态字典中移除实例
+                if (_gcHandle.IsAllocated)
+                {
+                    IntPtr instancePtr = GCHandle.ToIntPtr(_gcHandle);
+                    if (_playerInstances.ContainsKey(instancePtr))
+                    {
+                        _playerInstances.Remove(instancePtr);
+                    }
+                    
+                    _gcHandle.Free();
+                }
 
-            if (_mediaPlayer != IntPtr.Zero)
-            {
-                LibVLCWrapper.libvlc_media_player_release(_mediaPlayer);
-                _mediaPlayer = IntPtr.Zero;
-            }
+                if (_trackToRelease != IntPtr.Zero)
+                {
+                    LibVLCWrapper.libvlc_media_tracks_release(_trackToRelease, _tracks);
+                    _trackToRelease = IntPtr.Zero;
+                }
 
-            if (_media != IntPtr.Zero)
-            {
-                LibVLCWrapper.libvlc_media_release(_media);
-                _media = IntPtr.Zero;
-            }
+                if (_mediaPlayer != IntPtr.Zero)
+                {
+                    LibVLCWrapper.libvlc_media_player_release(_mediaPlayer);
+                    _mediaPlayer = IntPtr.Zero;
+                }
 
-            if (_libvlc != IntPtr.Zero)
-            {
-                LibVLCWrapper.libvlc_release(_libvlc);
-                _libvlc = IntPtr.Zero;
-            }
+                if (_media != IntPtr.Zero)
+                {
+                    LibVLCWrapper.libvlc_media_release(_media);
+                    _media = IntPtr.Zero;
+                }
 
-            if (_imageIntPtr != IntPtr.Zero)
-            {
-                Marshal.FreeHGlobal(_imageIntPtr);
-                _imageIntPtr = IntPtr.Zero;
-            }
+                if (_libvlc != IntPtr.Zero)
+                {
+                    LibVLCWrapper.libvlc_release(_libvlc);
+                    _libvlc = IntPtr.Zero;
+                }
 
-            if (_gcHandle.IsAllocated)
+                if (_imageIntPtr != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(_imageIntPtr);
+                    _imageIntPtr = IntPtr.Zero;
+                }
+            }
+            catch (Exception ex)
             {
-                _gcHandle.Free();
+                Debug.LogError($"释放VLC资源时发生错误: {ex.Message}");
             }
         }
 
@@ -365,9 +414,83 @@ namespace yan.libvlc
         #region 回调方法
 
         /// <summary>
-        /// VLC锁定回调
+        /// 通过opaque指针获取播放器实例
         /// </summary>
-        private IntPtr OnLock(IntPtr opaque, ref IntPtr planes)
+        private static VlcMediaPlayer GetPlayerInstance(IntPtr opaque)
+        {
+            try
+            {
+                if (opaque != IntPtr.Zero && _playerInstances.TryGetValue(opaque, out VlcMediaPlayer player))
+                {
+                    return player;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"获取播放器实例时发生错误: {ex.Message}");
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// VLC锁定回调（静态方法）
+        /// </summary>
+        [AOT.MonoPInvokeCallback(typeof(LockCB))]
+        private static IntPtr OnLockStatic(IntPtr opaque, ref IntPtr planes)
+        {
+            try
+            {
+                VlcMediaPlayer player = GetPlayerInstance(opaque);
+                if (player != null)
+                {
+                    return player.OnLockInstance(ref planes);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"VLC锁定回调时发生错误: {ex.Message}");
+            }
+            return IntPtr.Zero;
+        }
+
+        /// <summary>
+        /// VLC解锁回调（静态方法）
+        /// </summary>
+        [AOT.MonoPInvokeCallback(typeof(UnlockCB))]
+        private static void OnUnlockStatic(IntPtr opaque, IntPtr picture, ref IntPtr planes)
+        {
+            try
+            {
+                VlcMediaPlayer player = GetPlayerInstance(opaque);
+                player?.OnUnlockInstance(picture, ref planes);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"VLC解锁回调时发生错误: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// VLC显示回调（静态方法）
+        /// </summary>
+        [AOT.MonoPInvokeCallback(typeof(DisplayCB))]
+        private static void OnDisplayStatic(IntPtr opaque, IntPtr picture)
+        {
+            try
+            {
+                VlcMediaPlayer player = GetPlayerInstance(opaque);
+                player?.OnDisplayInstance(picture);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"VLC显示回调时发生错误: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// VLC锁定回调实例方法
+        /// </summary>
+        private IntPtr OnLockInstance(ref IntPtr planes)
         {
             if (_imageIntPtr == IntPtr.Zero)
             {
@@ -379,17 +502,17 @@ namespace yan.libvlc
         }
 
         /// <summary>
-        /// VLC解锁回调
+        /// VLC解锁回调实例方法
         /// </summary>
-        private void OnUnlock(IntPtr opaque, IntPtr picture, ref IntPtr planes)
+        private void OnUnlockInstance(IntPtr picture, ref IntPtr planes)
         {
             // 在当前实现中不需要执行任何操作
         }
 
         /// <summary>
-        /// VLC显示回调
+        /// VLC显示回调实例方法
         /// </summary>
-        private void OnDisplay(IntPtr opaque, IntPtr picture)
+        private void OnDisplayInstance(IntPtr picture)
         {
             if (!_update && picture != IntPtr.Zero)
             {
