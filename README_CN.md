@@ -4,7 +4,7 @@
   <img src="Docs/Image/MSO-Player_logo.png" alt="MSO-Player Logo" width="200" />
   <h3>基于libVLC的Unity视频播放解决方案</h3>
   <p>支持2D视频和360度全景视频播放的Unity插件</p>
-  <p>[🌟 English](README.md) | [🌏 中文](README_CN.md)</p>
+  <p><a href="README.md">🌟 English</a> | <a href="README_CN.md">🌏 中文</a></p>
 </div>
 
 ## 📋 功能概述

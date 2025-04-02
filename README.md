@@ -4,7 +4,7 @@
   <img src="Docs/Image/MSO-Player_logo.png" alt="MSO-Player Logo" width="200" />
   <h3>Unity Video Player Solution Based on libVLC</h3>
   <p>A Unity plugin supporting both 2D video and 360° panoramic video playback</p>
-  <p>[🌟 English](README.md) | [🌏 中文](README_CN.md)</p>
+  <p><a href="README.md">🌟 English</a> | <a href="README_CN.md">🌏 中文</a></p>
 </div>
 
 ## 📋 Overview
