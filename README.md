@@ -1,7 +1,7 @@
 # MSO-Player
 
 <div align="center">
-  <img src="Docs/Images/mso-player-logo.png" alt="MSO-Player Logo" width="200" />
+  <img src="Docs/Image/MSO-Player_logo.png" alt="MSO-Player Logo" width="200" />
   <h3>基于libVLC的Unity视频播放解决方案</h3>
   <p>支持2D视频和360度全景视频播放的Unity插件</p>
 </div>
