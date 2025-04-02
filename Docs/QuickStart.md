@@ -1,3 +1,8 @@
+<div align="center">
+  <img src="Docs/Images/MSO-Player_logo.png" alt="MSO-Player Logo" width="200" />
+  <h3>基于libVLC的Unity视频播放解决方案</h3>
+  <p>支持2D视频和360度全景视频播放的Unity插件</p>
+</div>
 # MSO-Player 快速入门指南
 
 本指南将帮助您快速上手使用MSO-Player插件，实现普通视频和全景视频的播放功能。
