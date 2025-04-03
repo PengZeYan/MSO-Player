@@ -41,6 +41,11 @@ namespace yan.libvlc
         
         private volatile bool _cancel = false;
         private bool _isRunning = false;
+        
+        // 图像数据跟踪
+        private float _lastImageReceivedTime;
+        private bool _hasReceivedAnyImage = false;
+        private bool _needToUpdateTimestamp = false;
 
         #endregion
 
@@ -63,6 +68,25 @@ namespace yan.libvlc
         /// 获取当前视频轨道信息
         /// </summary>
         public libvlc_video_track_t? VideoTrack => _videoTrack;
+        
+        /// <summary>
+        /// 获取无图像数据接收的时间（秒）
+        /// </summary>
+        public float NoImageDataReceivedTime
+        {
+            get
+            {
+                // 如果从未收到过图像数据，则检查播放状态
+                if (!_hasReceivedAnyImage)
+                {
+                    // 只有在播放状态下才认为是问题
+                    return State == libvlc_state_t.libvlc_Playing ? 
+                        (_lastImageReceivedTime > 0 ? Time.time - _lastImageReceivedTime : 3.0f) : 0f;
+                }
+                
+                return Time.time - _lastImageReceivedTime;
+            }
+        }
 
         #endregion
 
@@ -81,6 +105,7 @@ namespace yan.libvlc
             _height = height;
             _mute = mute;
             _gcHandle = GCHandle.Alloc(this);
+            _lastImageReceivedTime = 0;
 
             InitializeLibVLC(mediaUrl);
             SetupCallbacks();
@@ -99,6 +124,14 @@ namespace yan.libvlc
         public bool CheckForImageUpdate(out byte[] currentImage)
         {
             currentImage = null;
+            
+            // 在主线程更新时间戳
+            if (_needToUpdateTimestamp)
+            {
+                _lastImageReceivedTime = Time.time;
+                _needToUpdateTimestamp = false;
+            }
+            
             if (_update)
             {
                 currentImage = _currentImage;
@@ -229,18 +262,33 @@ namespace yan.libvlc
         /// </summary>
         private void InitializeLibVLC(string mediaUrl)
         {
-            string argStrings = DEFAULT_ARGS;
-            if (_mute)
+            // 解析参数，添加更多的缓冲选项用于RTMP流
+            string[] args = DEFAULT_ARGS.Split(';');
+            
+            // 检测是否为RTMP或其他网络流
+            bool isNetworkStream = mediaUrl.ToLower().StartsWith("rtmp://") || 
+                                  mediaUrl.ToLower().StartsWith("rtsp://") ||
+                                  mediaUrl.ToLower().StartsWith("http://") ||
+                                  mediaUrl.ToLower().StartsWith("https://");
+            
+            if (isNetworkStream)
             {
-                argStrings += ";--no-audio";
+                // 自定义网络缓冲参数列表
+                List<string> argsList = new List<string>(args);
+                argsList.Add("--network-caching=3000");  // 增加网络缓存
+                argsList.Add("--live-caching=3000");    // 直播流缓存
+                argsList.Add("--clock-jitter=0");       // 减少时钟抖动
+                argsList.Add("--clock-synchro=0");      // 禁用时钟同步
+                args = argsList.ToArray();
+                
+                Debug.Log($"检测到网络流，已添加额外的缓冲参数: {string.Join(", ", argsList)}");
             }
 
-            string[] args = argStrings.Split(';');
             _libvlc = LibVLCWrapper.libvlc_new(args.Length, args);
 
             if (_libvlc == IntPtr.Zero)
             {
-                Debug.LogError("加载新的libvlc实例失败");
+                Debug.LogError("初始化LibVLC失败");
                 return;
             }
 
@@ -250,6 +298,13 @@ namespace yan.libvlc
             {
                 Debug.LogError("创建媒体失败，请检查URL是否正确");
                 return;
+            }
+            
+            // 对于网络流，添加额外的媒体选项
+            if (isNetworkStream)
+            {
+                LibVLCWrapper.libvlc_media_add_option(_media, ":network-caching=3000");
+                LibVLCWrapper.libvlc_media_add_option(_media, ":clock-jitter=0");
             }
 
             _mediaPlayer = LibVLCWrapper.libvlc_media_player_new(_libvlc);
@@ -603,11 +658,22 @@ namespace yan.libvlc
         /// </summary>
         private void OnDisplayInstance(IntPtr picture)
         {
-            if (!_update && picture != IntPtr.Zero)
+            try 
             {
-                _currentImage = new byte[_width * _channels * _height];
-                Marshal.Copy(picture, _currentImage, 0, _width * _channels * _height);
-                _update = true;
+                if (!_update && picture != IntPtr.Zero)
+                {
+                    _currentImage = new byte[_width * _channels * _height];
+                    Marshal.Copy(picture, _currentImage, 0, _width * _channels * _height);
+                    _update = true;
+                    
+                    // 标记需要在主线程更新时间戳，而不是直接调用Time.time
+                    _needToUpdateTimestamp = true;
+                    _hasReceivedAnyImage = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"处理VLC视频帧时发生错误: {ex.Message}");
             }
         }
 

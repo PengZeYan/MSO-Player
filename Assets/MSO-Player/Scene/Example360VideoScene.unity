@@ -546,8 +546,8 @@ Camera:
     y: 0
     width: 1
     height: 1
-  near clip plane: 0.1
-  far clip plane: 100
+  near clip plane: 25
+  far clip plane: 51
   field of view: 60
   orthographic: 0
   orthographic size: 5
@@ -575,10 +575,15 @@ MonoBehaviour:
   m_GameObject: {fileID: 1773219596}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a30af136331ded146856f30e8a767775, type: 3}
+  m_Script: {fileID: 11500000, guid: e1f4b944889a2544a920f7510ed73a8a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  rotationSpeed: 2
+  m_HorizontalSensitivity: 2
+  m_VerticalSensitivity: 2
+  m_SmoothTime: 0.1
+  m_VerticalLimit: 80
+  m_UseGyroscope: 0
+  m_GyroSensitivity: 1
 --- !u!1 &1902273257
 GameObject:
   m_ObjectHideFlags: 0
@@ -590,7 +595,7 @@ GameObject:
   - component: {fileID: 1902273261}
   - component: {fileID: 1902273260}
   - component: {fileID: 1902273259}
-  - component: {fileID: 1902273258}
+  - component: {fileID: 1902273262}
   m_Layer: 6
   m_Name: Sphere
   m_TagString: Untagged
@@ -598,27 +603,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!135 &1902273258
-SphereCollider:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1902273257}
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_IsTrigger: 0
-  m_ProvidesContacts: 0
-  m_Enabled: 1
-  serializedVersion: 3
-  m_Radius: 0.5
-  m_Center: {x: 0, y: 0, z: 0}
 --- !u!23 &1902273259
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -679,11 +663,31 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: -100, y: 100, z: 100}
+  m_LocalScale: {x: 100, y: 100, z: 100}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1902273262
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1902273257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d9c719c71707f6443a26f2ca60bd0c30, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Url: rtmp://localhost/live/test
+  m_Width: 3840
+  m_Height: 2160
+  m_Mute: 0
+  m_PlayOnStart: 1
+  m_FlipY: 1
+  m_MaxNoDataWaitTime: 5
+  m_StatusCheckInterval: 0.5
 --- !u!1 &2051236714
 GameObject:
   m_ObjectHideFlags: 0

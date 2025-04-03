@@ -57,6 +57,7 @@ Thumbs.db
 # Project specific
 Docs/Images/~*
 *.backup
+*.cursorignore
 /[Aa]ssets/StreamingAssets/*/
 /[Aa]ssets/StreamingAssets/aa/*
 /[Aa]ssets/StreamingAssets/aa.meta 

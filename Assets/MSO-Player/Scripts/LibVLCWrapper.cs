@@ -346,5 +346,17 @@ namespace yan.libvlc
         internal static extern void libvlc_media_player_set_pause(IntPtr mediaPlayer, int doPause);
 
         #endregion
+
+        #region 媒体对象
+
+        /// <summary>
+        /// 添加选项到媒体对象
+        /// </summary>
+        /// <param name="p_md">媒体对象</param>
+        /// <param name="psz_options">要添加的选项</param>
+        [DllImport("libvlc")]
+        internal static extern void libvlc_media_add_option(IntPtr p_md, string psz_options);
+
+        #endregion
     }
 }
