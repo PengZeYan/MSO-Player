@@ -1,7 +1,0 @@
-warning: in the working copy of 'Assets/MSO-Player/Editor/MediaPlayer360Editor.cs', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'Assets/MSO-Player/Scene/Example360VideoScene.unity', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'Assets/MSO-Player/Scripts/VlcMediaPlayer.cs', LF will be replaced by CRLF the next time Git touches it
-Assets/MSO-Player/Editor/MediaPlayer360Editor.cs
-Assets/MSO-Player/Scene/Example360VideoScene.unity
-Assets/MSO-Player/Scripts/LibVLCWrapper.cs
-Assets/MSO-Player/Scripts/VlcMediaPlayer.cs
