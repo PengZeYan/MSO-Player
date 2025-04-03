@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.Events;
+using System;
 
 namespace yan.libvlc
 {
@@ -16,10 +17,10 @@ namespace yan.libvlc
         private string m_Url;
 
         [SerializeField, Min(0), Tooltip("输出分辨率宽度，≤0进行自动缩放")]
-        private int m_Width = 3840;
+        private int m_Width = 1920;
 
         [SerializeField, Min(0), Tooltip("输出分辨率高度，≤0进行自动缩放")]
-        private int m_Height = 1920;
+        private int m_Height = 960;
 
         [SerializeField, Tooltip("是否静音")]
         private bool m_Mute = false;
@@ -27,35 +28,15 @@ namespace yan.libvlc
         [SerializeField, Tooltip("启动时自动播放")]
         private bool m_PlayOnStart = true;
 
-        [Header("纹理调整")]
-        [SerializeField, Tooltip("视频水平翻转")]
-        private bool m_FlipHorizontal = false;
-
-        [SerializeField, Tooltip("视频垂直翻转")]
-        private bool m_FlipVertical = false;
+        [SerializeField, Tooltip("是否反转Y轴（上下翻转图像）")]
+        private bool m_FlipY = true;
         
-        [SerializeField, Tooltip("纹理旋转角度")]
-        private TextureRotation m_TextureRotation = TextureRotation.None;
-
-        #endregion
-
-        #region 枚举定义
+        [SerializeField, Tooltip("无视频数据最大等待时间(秒)，超过此时间将自动尝试恢复播放，0表示禁用")]
+        private float m_MaxNoDataWaitTime = 5.0f;
         
-        /// <summary>
-        /// 纹理旋转方向
-        /// </summary>
-        public enum TextureRotation
-        {
-            /// <summary>不旋转</summary>
-            None = 0,
-            /// <summary>顺时针旋转90度</summary>
-            CW_90 = 90,
-            /// <summary>旋转180度</summary>
-            CW_180 = 180,
-            /// <summary>逆时针旋转90度(顺时针旋转270度)</summary>
-            CCW_90 = 270
-        }
-        
+        [SerializeField, Tooltip("检测视频流状态的时间间隔(秒)")]
+        private float m_StatusCheckInterval = 0.5f;
+
         #endregion
 
         #region 私有字段
@@ -65,6 +46,11 @@ namespace yan.libvlc
         private MeshRenderer m_MeshRenderer;
         private Material m_Material;
         private libvlc_state_t m_CurrentMediaState;
+        private byte[] m_TempRowBuffer; // 用于Y轴反转的临时缓冲区
+        private bool m_IsInitialized = false;
+        private int m_FailedRecoveryAttempts = 0; // 记录恢复播放失败的次数
+        private const int MAX_RECOVERY_ATTEMPTS = 3; // 最大恢复尝试次数
+        private WaitForSeconds m_StatusCheckWait; // 缓存WaitForSeconds对象
 
         #endregion
 
@@ -79,6 +65,11 @@ namespace yan.libvlc
         /// 当媒体播放发生错误时触发的事件
         /// </summary>
         public UnityAction<string> OnMediaPlayerErrorEvent;
+        
+        /// <summary>
+        /// 当播放器自动恢复播放时触发的事件
+        /// </summary>
+        public UnityAction OnMediaPlayerRecoveryEvent;
 
         /// <summary>
         /// 获取当前媒体URL
@@ -107,6 +98,12 @@ namespace yan.libvlc
 
         #region Unity生命周期方法
 
+        private void Awake()
+        {
+            // 预先创建并缓存WaitForSeconds对象，避免每次都创建新的
+            m_StatusCheckWait = new WaitForSeconds(m_StatusCheckInterval);
+        }
+
         private void Start()
         {
             InitializeMeshRenderer();
@@ -118,6 +115,31 @@ namespace yan.libvlc
         private void Update()
         {
             UpdateTexture();
+        }
+        
+        private void OnApplicationFocus(bool focus)
+        {
+            // 当应用程序重新获得焦点时检查播放状态
+            if (focus && m_Player != null && m_IsInitialized)
+            {
+                // 检查播放器状态，可能需要恢复播放
+                if (m_Player.State == libvlc_state_t.libvlc_Paused || 
+                    m_Player.State == libvlc_state_t.libvlc_Stopped)
+                {
+                    Debug.Log("应用程序重新获得焦点，尝试恢复播放");
+                    m_Player.Pause(); // 切换播放状态
+                }
+            }
+        }
+        
+        private void OnApplicationPause(bool pause)
+        {
+            // 当应用程序暂停时，主动暂停播放，避免资源浪费
+            if (pause && m_Player != null && m_Player.IsPlaying())
+            {
+                Debug.Log("应用程序暂停，暂停播放");
+                m_Player.Pause();
+            }
         }
 
         private void OnDestroy()
@@ -143,6 +165,7 @@ namespace yan.libvlc
             }
 
             m_Url = url;
+            m_FailedRecoveryAttempts = 0; // 重置恢复尝试计数
 
             if (autoPlay)
             {
@@ -213,46 +236,8 @@ namespace yan.libvlc
         public void Refresh()
         {
             CheckEditorPlaying();
+            m_FailedRecoveryAttempts = 0; // 重置恢复尝试计数
             SetUrl(m_Url, true);
-        }
-
-        /// <summary>
-        /// 设置水平翻转
-        /// </summary>
-        /// <param name="flip">是否水平翻转</param>
-        public void SetHorizontalFlip(bool flip)
-        {
-            if (m_FlipHorizontal != flip)
-            {
-                m_FlipHorizontal = flip;
-                UpdateTextureScale();
-            }
-        }
-
-        /// <summary>
-        /// 设置垂直翻转
-        /// </summary>
-        /// <param name="flip">是否垂直翻转</param>
-        public void SetVerticalFlip(bool flip)
-        {
-            if (m_FlipVertical != flip)
-            {
-                m_FlipVertical = flip;
-                UpdateTextureScale();
-            }
-        }
-
-        /// <summary>
-        /// 设置纹理旋转角度
-        /// </summary>
-        /// <param name="rotation">旋转角度枚举</param>
-        public void SetTextureRotation(TextureRotation rotation)
-        {
-            if (m_TextureRotation != rotation)
-            {
-                m_TextureRotation = rotation;
-                UpdateTextureScale();
-            }
         }
 
         #endregion
@@ -326,7 +311,14 @@ namespace yan.libvlc
                 CreateTexture();
             }
             
+            m_IsInitialized = true;
             StartCoroutine(SupervisePlayerState());
+            
+            // 启动视频数据监控
+            if (m_MaxNoDataWaitTime > 0)
+            {
+                StartCoroutine(MonitorVideoDataStream());
+            }
         }
 
         /// <summary>
@@ -342,18 +334,36 @@ namespace yan.libvlc
 
             if (m_Width > 0 && m_Height > 0)
             {
-                m_Texture = new Texture2D(m_Width, m_Height, TextureFormat.RGB24, false, false);
-                
-                // 对于全景视频，需要设置适当的包裹模式
-                m_Texture.wrapMode = TextureWrapMode.Repeat;
-                m_Texture.filterMode = FilterMode.Bilinear;
+                // 尝试使用非破坏性操作，如果已经有合适的纹理则重用它
+                if (m_Texture != null && 
+                    m_Texture.width == m_Width && 
+                    m_Texture.height == m_Height && 
+                    m_Texture.format == TextureFormat.RGB24)
+                {
+                    // 纹理已存在且符合要求，重用它
+                    Debug.Log("重用现有纹理以减少内存分配");
+                }
+                else
+                {
+                    // 需要创建新纹理时，先释放旧的
+                    if (m_Texture != null)
+                    {
+                        Destroy(m_Texture);
+                    }
+                    
+                    m_Texture = new Texture2D(m_Width, m_Height, TextureFormat.RGB24, false, false);
+                    
+                    // 对于全景视频，需要设置适当的包裹模式
+                    m_Texture.wrapMode = TextureWrapMode.Repeat;
+                    m_Texture.filterMode = FilterMode.Bilinear;
+                }
                 
                 // 将纹理设置到球体材质
                 if (m_Material != null)
                 {
                     m_Material.mainTexture = m_Texture;
                     
-                    // 根据翻转设置更新纹理缩放
+                    // 设置基本的纹理属性
                     UpdateTextureScale();
                 }
             }
@@ -364,45 +374,15 @@ namespace yan.libvlc
         }
 
         /// <summary>
-        /// 更新纹理的缩放，用于处理视频翻转
+        /// 更新纹理的基本设置
         /// </summary>
         private void UpdateTextureScale()
         {
             if (m_Material != null)
             {
-                // 处理水平和垂直翻转
-                float scaleX = m_FlipHorizontal ? -1 : 1;
-                float scaleY = m_FlipVertical ? -1 : 1;
-                float offsetX = m_FlipHorizontal ? 1 : 0;
-                float offsetY = m_FlipVertical ? 1 : 0;
-                
-                // 根据旋转角度调整纹理坐标
-                switch (m_TextureRotation)
-                {
-                    case TextureRotation.None:
-                        // 不做变化
-                        m_Material.mainTextureScale = new Vector2(scaleX, scaleY);
-                        m_Material.mainTextureOffset = new Vector2(offsetX, offsetY);
-                        break;
-
-                    case TextureRotation.CW_90:
-                        // 顺时针旋转90度
-                        m_Material.mainTextureScale = new Vector2(scaleY, -scaleX);
-                        m_Material.mainTextureOffset = new Vector2(offsetY, 1 - offsetX);
-                        break;
-
-                    case TextureRotation.CW_180:
-                        // 旋转180度
-                        m_Material.mainTextureScale = new Vector2(-scaleX, -scaleY);
-                        m_Material.mainTextureOffset = new Vector2(1 - offsetX, 1 - offsetY);
-                        break;
-
-                    case TextureRotation.CCW_90:
-                        // 逆时针旋转90度
-                        m_Material.mainTextureScale = new Vector2(-scaleY, scaleX);
-                        m_Material.mainTextureOffset = new Vector2(1 - offsetY, offsetX);
-                        break;
-                }
+                // 使用默认纹理设置
+                m_Material.mainTextureScale = new Vector2(1, 1);
+                m_Material.mainTextureOffset = new Vector2(0, 0);
                 
                 // 调整材质的属性以优化渲染
                 if (m_Material.HasProperty("_Mapping"))
@@ -429,10 +409,113 @@ namespace yan.libvlc
                 return;
             }
 
-            if (m_Player.CheckForImageUpdate(out byte[] imageData))
+            try
             {
-                m_Texture.LoadRawTextureData(imageData);
-                m_Texture.Apply(false);
+                if (m_Player.CheckForImageUpdate(out byte[] imageData))
+                {
+                    if (imageData == null || imageData.Length == 0)
+                    {
+                        Debug.LogWarning("接收到空的图像数据");
+                        return;
+                    }
+                    
+                    // 检查图像数据的大小是否与纹理尺寸匹配
+                    int expectedSize = m_Width * m_Height * 3; // RGB24 = 3字节每像素
+                    if (imageData.Length < expectedSize)
+                    {
+                        Debug.LogWarning($"图像数据大小不匹配：期望{expectedSize}字节，实际{imageData.Length}字节");
+                        return;
+                    }
+                    
+                    // 仅当需要时才反转Y轴
+                    if (m_FlipY)
+                    {
+                        FlipTextureDataVertically(imageData, m_Width, m_Height);
+                    }
+                    
+                    try
+                    {
+                        m_Texture.LoadRawTextureData(imageData);
+                        m_Texture.Apply(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogError($"更新纹理时发生错误: {ex.Message}");
+                        // 重新创建可读的纹理
+                        RecreateTexture();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"处理图像数据时发生未处理异常: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 垂直翻转纹理数据（Y轴反转）
+        /// </summary>
+        /// <param name="imageData">图像字节数据</param>
+        /// <param name="width">图像宽度</param>
+        /// <param name="height">图像高度</param>
+        private void FlipTextureDataVertically(byte[] imageData, int width, int height)
+        {
+            int bytesPerPixel = 3; // RGB24格式为每像素3字节
+            int stride = width * bytesPerPixel;
+            
+            // 懒加载临时缓冲区，避免重复分配内存
+            if (m_TempRowBuffer == null || m_TempRowBuffer.Length < stride)
+            {
+                m_TempRowBuffer = new byte[stride];
+            }
+            
+            // 优化：只处理一半的高度，提高效率
+            int halfHeight = height / 2;
+            
+            // 避免大量小型复制操作，减少函数调用开销
+            for (int y = 0; y < halfHeight; y++)
+            {
+                int topRowStart = y * stride;
+                int bottomRowStart = (height - y - 1) * stride;
+                
+                // 使用高效的内存块复制
+                Buffer.BlockCopy(imageData, topRowStart, m_TempRowBuffer, 0, stride);
+                Buffer.BlockCopy(imageData, bottomRowStart, imageData, topRowStart, stride);
+                Buffer.BlockCopy(m_TempRowBuffer, 0, imageData, bottomRowStart, stride);
+            }
+        }
+
+        /// <summary>
+        /// 在发生纹理错误后重新创建纹理
+        /// </summary>
+        private void RecreateTexture()
+        {
+            try
+            {
+                // 先销毁旧纹理
+                if (m_Texture != null)
+                {
+                    Destroy(m_Texture);
+                    m_Texture = null;
+                }
+                
+                // 创建一个明确可读的纹理
+                m_Texture = new Texture2D(m_Width, m_Height, TextureFormat.RGB24, false);
+                m_Texture.wrapMode = TextureWrapMode.Repeat;
+                m_Texture.filterMode = FilterMode.Bilinear;
+                
+                // 重新设置到材质
+                if (m_Material != null)
+                {
+                    m_Material.mainTexture = m_Texture;
+                    UpdateTextureScale();
+                }
+                
+                Debug.Log("已重新创建纹理以解决可读性问题");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"重新创建纹理时发生错误: {ex.Message}");
             }
         }
 
@@ -441,8 +524,6 @@ namespace yan.libvlc
         /// </summary>
         private IEnumerator SupervisePlayerState()
         {
-            WaitForSeconds wait = new WaitForSeconds(0.5f);
-            
             while (m_Player != null)
             {
                 libvlc_state_t state = m_Player.State;
@@ -466,10 +547,86 @@ namespace yan.libvlc
                         
                         Debug.LogError(errorMessage);
                         OnMediaPlayerErrorEvent?.Invoke(errorMessage);
+                        
+                        // 尝试自动恢复播放
+                        if (m_FailedRecoveryAttempts < MAX_RECOVERY_ATTEMPTS)
+                        {
+                            Debug.Log($"尝试恢复播放 (尝试 {m_FailedRecoveryAttempts+1}/{MAX_RECOVERY_ATTEMPTS})");
+                            StartCoroutine(AttemptRecovery());
+                        }
+                        else
+                        {
+                            Debug.LogWarning($"已达到最大恢复尝试次数 ({MAX_RECOVERY_ATTEMPTS})，不再自动恢复");
+                        }
+                    }
+                    else if (state == libvlc_state_t.libvlc_Playing)
+                    {
+                        // 播放成功时重置恢复计数
+                        m_FailedRecoveryAttempts = 0;
                     }
                 }
                 
-                yield return wait;
+                yield return m_StatusCheckWait;
+            }
+        }
+        
+        /// <summary>
+        /// 监控视频数据流，检测是否长时间没有收到图像数据
+        /// </summary>
+        private IEnumerator MonitorVideoDataStream()
+        {
+            // 给播放器一些初始化时间
+            yield return new WaitForSeconds(1.0f);
+            
+            while (m_Player != null && m_IsInitialized)
+            {
+                // 检查是否播放中且长时间未收到图像
+                if (m_Player.IsPlaying() && m_Player.NoImageDataReceivedTime > m_MaxNoDataWaitTime)
+                {
+                    Debug.LogWarning($"已有 {m_Player.NoImageDataReceivedTime:F1} 秒没有接收到视频数据，尝试恢复播放");
+                    
+                    if (m_FailedRecoveryAttempts < MAX_RECOVERY_ATTEMPTS)
+                    {
+                        StartCoroutine(AttemptRecovery());
+                    }
+                }
+                
+                yield return m_StatusCheckWait;
+            }
+        }
+        
+        /// <summary>
+        /// 尝试恢复播放
+        /// </summary>
+        private IEnumerator AttemptRecovery()
+        {
+            m_FailedRecoveryAttempts++;
+            
+            // 通知恢复事件
+            OnMediaPlayerRecoveryEvent?.Invoke();
+            
+            // 停止当前播放
+            m_Player?.Stop();
+            
+            // 短暂等待
+            yield return new WaitForSeconds(0.5f);
+            
+            // 重新创建播放器
+            CleanupPlayer();
+            CreatePlayer();
+        }
+        
+        /// <summary>
+        /// 仅清理播放器资源，保留材质和纹理
+        /// </summary>
+        private void CleanupPlayer()
+        {
+            StopAllCoroutines();
+            
+            if (m_Player != null)
+            {
+                m_Player.Dispose();
+                m_Player = null;
             }
         }
 
@@ -478,6 +635,7 @@ namespace yan.libvlc
         /// </summary>
         private void CleanupResources()
         {
+            m_IsInitialized = false;
             StopAllCoroutines();
             
             if (m_Player != null)
@@ -497,6 +655,9 @@ namespace yan.libvlc
                 Destroy(m_Material);
                 m_Material = null;
             }
+            
+            // 释放临时缓冲区
+            m_TempRowBuffer = null;
         }
 
         /// <summary>
