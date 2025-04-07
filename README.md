@@ -3,11 +3,15 @@
 
 ## 📑 目录
 
-- [🎥 Unity MSO Player](#-unity-mso-player)
-  - [核心功能](#核心功能)
+- [🎥 MSO-Player](#mso-player)
+  - [📋 功能概述](#-功能概述)
   - [🚀 快速入门](#-快速入门)
-  - [📚 文档](#-文档)
-  - [📝 许可证](#-许可证)
+  - [📚 关键组件](#-关键组件)
+  - [📝 使用案例](#-使用案例)
+  - [🔌 依赖项](#-依赖项)
+  - [📋 注意事项](#-注意事项)
+  - [📄 许可证](#-许可证)
+  - [📞 联系与支持](#-联系与支持)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
