@@ -1,3 +1,16 @@
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+
+## 📑 目录
+
+- [🎥 Unity MSO Player](#-unity-mso-player)
+  - [核心功能](#核心功能)
+  - [🚀 快速入门](#-快速入门)
+  - [📚 文档](#-文档)
+  - [📝 许可证](#-许可证)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
 # MSO-Player
 
 <div align="center">
@@ -76,7 +89,6 @@ player.SetUrl("https://example.com/video.mp4", true); // 设置URL并自动播�
 // 代码示例 - 控制全景视频播放
 MediaPlayer360 player = GetComponent<MediaPlayer360>();
 player.SetUrl("https://example.com/panorama.mp4", true);
-player.SetTextureRotation(MediaPlayer360.TextureRotation.CW_90); // 调整视频方向
 ```
 
 ## 📚 关键组件
@@ -135,7 +147,6 @@ player.Play();
 // 创建可交互的360度环境
 MediaPlayer360 player = GetComponent<MediaPlayer360>();
 player.SetUrl("https://example.com/360tour.mp4");
-player.SetTextureRotation(MediaPlayer360.TextureRotation.CW_180); // 适配视频方向
 ```
 
 ## 🔌 依赖项
