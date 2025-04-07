@@ -1,3 +1,16 @@
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+
+## 📑 Table of Contents
+
+- [🎥 Unity MSO Player](#-unity-mso-player)
+  - [Core Features](#core-features)
+  - [🚀 Quick Start](#-quick-start)
+  - [📚 Documentation](#-documentation)
+  - [📝 License](#-license)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
 # MSO-Player
 
 <div align="center">
@@ -15,11 +28,18 @@ MSO-Player is a powerful video playback solution for Unity, built on the libVLC 
 ![Basic Features Demo](Docs/Video/demo.gif)
 
 ### Core Features
-- ✅ **Standard Video Playback**: Play regular videos on UI elements or 3D objects
+- ✅ **Standard Video Playback**: Play regular videos on UI or 3D objects
 - ✅ **360° Panoramic Video**: Immersive panoramic video experience with mouse/touch/gyroscope control
-- ✅ **Multiple Format Support**: Based on libVLC, supporting almost all popular video formats and streaming protocols
+- ✅ **Multiple Format Support**: Based on libVLC, supports almost all popular video formats and streaming protocols
 - ✅ **Streaming Support**: RTSP, RTMP, HTTP and other streaming protocols
 - ✅ **Full Directional Adjustment**: Support for video flipping and rotation to easily adapt to various source videos
+- ✅ **Ultra-High Performance Playback**: High-performance video rendering optimized for mobile devices
+- ✅ **Multiple Playback Routes**: Support for multiple playback routes with automatic best route selection
+- ✅ **Advanced Error Recovery**: Intelligent error detection and automatic recovery mechanism
+- ✅ **Enhanced Memory Management**: Optimized texture management and memory usage
+- ✅ **Real-time Rendering Optimization**: Efficient video frame processing and rendering
+- ✅ **Automatic Quality Switching**: Automatically adjust video quality based on network conditions
+- ✅ **Enhanced Stability**: Improved error handling and playback stability
 
 ## 🚀 Quick Start
 
@@ -78,14 +98,15 @@ Panoramic video player component for playing 360° videos on a sphere.
 
 **Main Properties:**
 - All properties inherited from MediaPlayer
-- `FlipHorizontal/FlipVertical`: Video flip settings
-- `TextureRotation`: Video rotation angle
+- `FlipY`: Enable/disable Y-axis flipping for 360° videos
 
 **Main Methods:**
 - All methods inherited from MediaPlayer
-- `SetHorizontalFlip(bool)`: Set horizontal flip
-- `SetVerticalFlip(bool)`: Set vertical flip
-- `SetTextureRotation(TextureRotation)`: Set video rotation angle
+- `SetUrl(string url, bool autoPlay)`: Set a new media source
+- `Play()`: Start playback
+- `Pause()`: Pause/resume playback
+- `Stop()`: Stop playback
+- `Refresh()`: Refresh the current media
 
 ### CameraController360
 Component for controlling the 360° panoramic camera, supporting multiple input methods.
