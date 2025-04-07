@@ -50,7 +50,7 @@ namespace yan.libvlc
         /// <summary>
         /// 当媒体播放器状态变化时触发的事件
         /// </summary>
-        public UnityAction<string> OnMediaPlayerStateEvent;
+        public UnityAction<libvlc_state_t, string> OnMediaPlayerStateEvent;
 
         /// <summary>
         /// 当媒体播放发生错误时触发的事件
@@ -88,7 +88,7 @@ namespace yan.libvlc
         {
             InitializeRawImage();
 
-            if (m_PlayOnStart) 
+            if (m_PlayOnStart)
                 Play();
         }
 
@@ -213,7 +213,7 @@ namespace yan.libvlc
         private void InitializeRawImage()
         {
             m_RawImage = GetComponent<RawImage>();
-            
+
             if (m_RawImage == null)
             {
                 Debug.LogError("无法获取RawImage组件");
@@ -227,12 +227,12 @@ namespace yan.libvlc
         private void CreatePlayer()
         {
             m_Player = new VlcMediaPlayer(m_Width, m_Height, m_Url, m_Mute);
-            
+
             if (m_Texture == null)
             {
                 CreateTexture();
             }
-            
+
             StartCoroutine(SupervisePlayerState());
         }
 
@@ -288,7 +288,7 @@ namespace yan.libvlc
         private IEnumerator SupervisePlayerState()
         {
             WaitForSeconds wait = new WaitForSeconds(0.5f);
-            
+
             while (m_Player != null)
             {
                 libvlc_state_t state = m_Player.State;
@@ -296,25 +296,25 @@ namespace yan.libvlc
                 if (state != m_CurrentMediaState)
                 {
                     m_CurrentMediaState = state;
-                    OnMediaPlayerStateEvent?.Invoke(StateToString(state));
-                    
+                    OnMediaPlayerStateEvent?.Invoke(state, StateToString(state));
+
                     // 检测错误状态并触发错误事件
                     if (state == libvlc_state_t.libvlc_Error)
                     {
                         string errorMessage = $"播放 {m_Url} 时发生错误";
-                        
+
                         // 获取VLC的具体错误信息
                         string vlcError = m_Player.GetErrorMessage();
                         if (!string.IsNullOrEmpty(vlcError))
                         {
                             errorMessage += $": {vlcError}";
                         }
-                        
+
                         Debug.LogError(errorMessage);
                         OnMediaPlayerErrorEvent?.Invoke(errorMessage);
                     }
                 }
-                
+
                 yield return wait;
             }
         }
@@ -327,7 +327,7 @@ namespace yan.libvlc
             try
             {
                 StopAllCoroutines();
-                
+
                 if (m_Player != null)
                 {
                     try
@@ -338,7 +338,7 @@ namespace yan.libvlc
                     {
                         Debug.LogError($"停止播放时发生错误: {ex.Message}");
                     }
-                    
+
                     try
                     {
                         m_Player.Dispose();
@@ -347,10 +347,10 @@ namespace yan.libvlc
                     {
                         Debug.LogError($"释放播放器资源时发生错误: {ex.Message}");
                     }
-                    
+
                     m_Player = null;
                 }
-                
+
                 if (m_Texture != null)
                 {
                     try
@@ -361,7 +361,7 @@ namespace yan.libvlc
                     {
                         Debug.LogError($"销毁纹理时发生错误: {ex.Message}");
                     }
-                    
+
                     m_Texture = null;
                 }
             }
