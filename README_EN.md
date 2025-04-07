@@ -3,160 +3,171 @@
 
 ## 📑 Table of Contents
 
-- [🎥 Unity MSO Player](#-unity-mso-player)
-  - [Core Features](#core-features)
+- [🎥 MSO-Player](#mso-player)
+  - [📋 Features](#-features)
   - [🚀 Quick Start](#-quick-start)
-  - [📚 Documentation](#-documentation)
-  - [📝 License](#-license)
+  - [📚 Key Components](#-key-components)
+  - [📝 Usage Examples](#-usage-examples)
+  - [🔌 Dependencies](#-dependencies)
+  - [📋 Notes](#-notes)
+  - [📄 License](#-license)
+  - [📞 Contact & Support](#-contact--support)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 # MSO-Player
 
-<div align="center">
-  <img src="Docs/Image/MSO-Player_logo.png" alt="MSO-Player Logo" width="200" />
-  <h3>基于libVLC的Unity视频播放解决方案</h3>
-  <p>支持2D视频和360度全景视频播放的Unity插件</p>
-  <p><a href="README.md">🌏 中文</a> | <a href="README_EN.md">🌟 English</a></p>
-</div>
+A powerful Unity video player plugin that supports standard video playback and 360° panoramic video playback, based on LibVLC.
 
-## 📋 功能概述
+<p><a href="README.md">🌏 中文</a> | <a href="README_EN.md">🌟 English</a></p>
 
-MSO-Player是一个为Unity开发的强大视频播放解决方案，基于libVLC库构建，提供了丰富的功能和卓越的性能：
+## 📋 Features
 
-### 演示
-![基本功能演示](Docs/Video/demo.gif)
+- **Standard Video Playback**
+  - Support for common video formats
+  - Basic playback controls (play, pause, stop)
+  - Volume control
+  - Playback progress control
 
-### 核心特性
-- ✅ **普通视频播放**：在UI上或3D物体上播放常规视频
-- ✅ **360度全景视频**：沉浸式全景视频体验，支持鼠标/触摸/陀螺仪控制
-- ✅ **多种格式支持**：基于libVLC，几乎支持所有流行的视频格式和流媒体协议
-- ✅ **流媒体支持**：RTSP、RTMP、HTTP等流媒体协议
-- ✅ **全方位方向调整**：支持视频翻转、旋转，轻松适配各种源视频
-- ✅ **超高性能播放**：针对移动设备优化的高性能视频渲染
-- ✅ **多播放线路**：支持多条播放线路，自动切换最佳线路
-- ✅ **高级错误恢复**：智能错误检测和自动恢复机制
-- ✅ **增强内存管理**：优化的纹理管理和内存使用
-- ✅ **实时渲染优化**：高效的视频帧处理和渲染
-- ✅ **自动画质切换**：根据网络状况自动调整视频质量
-- ✅ **增强稳定性**：改进的错误处理和播放稳定性
+- **360° Panoramic Video**
+  - Support for 360° video playback
+  - Full directional adjustment
+  - Y-axis flip support
+  - Optimized rendering performance
+
+- **Multiple Format Support**
+  - MP4, AVI, MKV, MOV, etc.
+  - Various codec support
+  - High compatibility
+
+- **Streaming Support**
+  - RTMP, RTSP, HTTP streaming
+  - Adaptive bitrate streaming
+  - Network buffering optimization
+
+- **Performance Optimization**
+  - Optimized texture management
+  - Improved memory usage
+  - Enhanced playback stability
 
 ## 🚀 Quick Start
 
-### Requirements
-- Unity 2019.4 or later
-- Supported platforms: Windows, macOS, Linux, Android, iOS
+1. **Import the Package**
+   - Download the latest release
+   - Import into your Unity project
+   - Ensure all dependencies are properly imported
 
-### Installation
-1. Import the MSO-Player folder into your Unity project
-2. Ensure libVLC related DLL files are included in your project (located in the Plugins folder)
+2. **Basic Setup**
+   ```csharp
+   // Add MediaPlayer360 component to your camera
+   MediaPlayer360 player = cameraObject.AddComponent<MediaPlayer360>();
+   
+   // Set video path
+   player.VideoPath = "path/to/your/video.mp4";
+   
+   // Start playback
+   player.Play();
+   ```
 
-### Basic Usage - Standard Video
-1. Create a UI object with a RawImage component
-2. Add the `MediaPlayer` component
-3. Set the video URL (local file or streaming link)
-4. Click the play button or call the `Play()` method
-
-```csharp
-// Code example - Controlling video playback
-MediaPlayer player = GetComponent<MediaPlayer>();
-player.SetUrl("https://example.com/video.mp4", true); // Set URL and autoplay
-```
-
-### Basic Usage - 360° Panoramic Video
-1. Create a sphere object
-2. Add the `MediaPlayer360` component
-3. Use the editor tools to set appropriate materials and camera
-4. Set the panoramic video URL and play
-
-```csharp
-// Code example - Controlling panoramic video playback
-MediaPlayer360 player = GetComponent<MediaPlayer360>();
-player.SetUrl("https://example.com/panorama.mp4", true);
-player.SetTextureRotation(MediaPlayer360.TextureRotation.CW_90); // Adjust video orientation
-```
+3. **360° Video Setup**
+   ```csharp
+   // Enable 360° mode
+   player.Is360Video = true;
+   
+   // Set initial orientation
+   player.InitialOrientation = new Vector3(0, 0, 0);
+   
+   // Enable Y-axis flip if needed
+   player.FlipY = true;
+   ```
 
 ## 📚 Key Components
 
-### MediaPlayer
-Standard video player component for playing videos on a UI RawImage.
-
-**Main Properties:**
-- `URL`: Video source address
-- `Width/Height`: Video resolution
-- `Mute`: Whether to mute audio
-- `PlayOnStart`: Whether to play automatically
-
-**Main Methods:**
-- `Play()`: Start playback
-- `Pause()`: Pause/resume playback
-- `Stop()`: Stop playback
-- `SetUrl(string url, bool autoPlay)`: Set a new media source
-
 ### MediaPlayer360
-Panoramic video player component for playing 360° videos on a sphere.
+The core component for video playback, supporting both standard and 360° video playback.
 
-**Main Properties:**
-- All properties inherited from MediaPlayer
-- `FlipY`: Enable/disable Y-axis flipping for 360° videos
+#### Main Properties
+| Property | Type | Description |
+|----------|------|-------------|
+| `VideoPath` | string | Video file path or URL |
+| `IsPlaying` | bool | Current playback state |
+| `Volume` | float | Playback volume (0-1) |
+| `Is360Video` | bool | Whether it's a 360° video |
+| `FlipY` | bool | Enable/disable Y-axis flip |
+| `InitialOrientation` | Vector3 | Initial camera orientation |
 
-**Main Methods:**
-- All methods inherited from MediaPlayer
-- `SetUrl(string url, bool autoPlay)`: Set a new media source
-- `Play()`: Start playback
-- `Pause()`: Pause/resume playback
-- `Stop()`: Stop playback
-- `Refresh()`: Refresh the current media
+#### Main Methods
+| Method | Description |
+|--------|-------------|
+| `Play()` | Start playback |
+| `Pause()` | Pause playback |
+| `Stop()` | Stop playback |
+| `SetVolume(float)` | Set playback volume |
+| `SetVerticalFlip(bool)` | Enable/disable vertical flip |
 
-### CameraController360
-Component for controlling the 360° panoramic camera, supporting multiple input methods.
+## 📝 Usage Examples
 
-**Main Features:**
-- Mouse drag control
-- Touchscreen control
-- Device gyroscope control
-- Smooth rotation transitions
-
-## 📝 Use Cases
-
-### Video Stream Monitoring
+### Basic Video Playback
 ```csharp
-// Real-time display of RTSP camera stream
-MediaPlayer player = GetComponent<MediaPlayer>();
-player.SetUrl("rtsp://admin:password@192.168.1.100:554/stream");
-player.Play();
+public class VideoPlayerExample : MonoBehaviour
+{
+    private MediaPlayer360 player;
+
+    void Start()
+    {
+        player = gameObject.AddComponent<MediaPlayer360>();
+        player.VideoPath = "path/to/video.mp4";
+        player.Play();
+    }
+}
 ```
 
-### VR Panoramic Experience
+### 360° Video Playback
 ```csharp
-// Create interactive 360° environment
-MediaPlayer360 player = GetComponent<MediaPlayer360>();
-player.SetUrl("https://example.com/360tour.mp4");
-player.SetTextureRotation(MediaPlayer360.TextureRotation.CW_180); // Adapt to video orientation
+public class Video360Example : MonoBehaviour
+{
+    private MediaPlayer360 player;
+
+    void Start()
+    {
+        player = gameObject.AddComponent<MediaPlayer360>();
+        player.VideoPath = "path/to/360video.mp4";
+        player.Is360Video = true;
+        player.FlipY = true;
+        player.Play();
+    }
+}
 ```
 
 ## 🔌 Dependencies
 
-- [LibVLC](https://www.videolan.org/vlc/libvlc.html) - Video decoding and processing
-- Unity UI System - For video rendering and interaction
+- Unity 2019.4 or later
+- LibVLC
+- .NET Framework 4.7.1 or later
 
 ## 📋 Notes
 
-1. **Performance Considerations**: Panoramic video resolution has a significant impact on performance; please adjust appropriately based on the target platform
-2. **Platform-Specific Settings**: Check platform-specific settings and permissions before publishing on mobile platforms
-3. **Video Orientation Issues**: 360° videos from different sources may require different flip/rotation settings
+1. **Performance Optimization**
+   - Use appropriate video resolution
+   - Enable hardware acceleration when possible
+   - Monitor memory usage during playback
+
+2. **360° Video Considerations**
+   - Ensure correct video format
+   - Test orientation controls
+   - Verify Y-axis flip functionality
+
+3. **Memory Management**
+   - Properly dispose of resources
+   - Monitor texture memory usage
+   - Handle video unloading appropriately
 
 ## 📄 License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 📞 Contact & Support
 
-- Issue reporting: Please use GitHub Issues
-- Contact the author: [873438526@qq.com]
-
----
-
-<div align="center">
-  <p>If you like this project, please consider giving it a ⭐</p>
-</div>
+- **GitHub Issues**: [Submit Issues](https://github.com/PengZeYan/MSO-Player/issues)
+- **Email**: [pengzeyan@outlook.com](mailto:pengzeyan@outlook.com)
+- **Documentation**: [Wiki](https://github.com/PengZeYan/MSO-Player/wiki)
