@@ -44,16 +44,20 @@ MSO-Player是一个为Unity开发的强大视频播放解决方案，基于libVL
 - ✅ **实时渲染优化**：高效的视频帧处理和渲染
 - ✅ **自动画质切换**：根据网络状况自动调整视频质量
 - ✅ **增强稳定性**：改进的错误处理和播放稳定性
+- ✅ **安卓平台支持**：完全支持安卓设备，包括基本的硬件加速
+- ✅ **优化的插件结构**：更合理的目录组织，提高开发效率
 
 ## 🚀 快速入门
 
 ### 安装要求
 - Unity 2019.4 或更高版本
-- 支持的平台：Windows、macOS、Linux、Android、iOS
+- 支持的平台：Windows、macOS、Linux、Android
 
 ### 安装步骤
 1. 将 MSO-Player 文件夹导入您的 Unity 项目
 2. 确保项目中已包含 libVLC 相关 dll 文件（位于 Plugins 文件夹）
+   - Windows: Plugins/x86_64/libvlc/
+   - Android: Plugins/Android/
 
 ### 基本使用 - 普通视频
 1. 创建一个带有 RawImage 组件的 UI 对象
@@ -77,6 +81,14 @@ player.SetUrl("https://example.com/video.mp4", true); // 设置URL并自动播�
 // 代码示例 - 控制全景视频播放
 MediaPlayer360 player = GetComponent<MediaPlayer360>();
 player.SetUrl("https://example.com/panorama.mp4", true);
+player.SetTextureRotation(MediaPlayer360.TextureRotation.CW_90); // 调整视频方向
+```
+
+### 安卓平台特别说明
+在安卓平台上使用时，确保在 AndroidManifest.xml 中添加以下权限：
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
 ```
 
 ## 📚 关键组件
@@ -102,6 +114,7 @@ player.SetUrl("https://example.com/panorama.mp4", true);
 **主要属性：**
 - 继承自MediaPlayer的所有属性
 - `FlipY`: 360度视频Y轴翻转开关
+- `RotationMode`: 视频旋转模式（适用于不同来源的视频）
 
 **主要方法：**
 - 继承自MediaPlayer的所有方法
@@ -110,6 +123,7 @@ player.SetUrl("https://example.com/panorama.mp4", true);
 - `Pause()`: 暂停/恢复播放
 - `Stop()`: 停止播放
 - `Refresh()`: 刷新当前媒体
+- `SetTextureRotation(TextureRotation rotation)`: 设置视频纹理旋转
 
 ### CameraController360
 用于控制360全景相机的组件，支持多种输入方式。
@@ -135,6 +149,15 @@ player.Play();
 // 创建可交互的360度环境
 MediaPlayer360 player = GetComponent<MediaPlayer360>();
 player.SetUrl("https://example.com/360tour.mp4");
+player.SetTextureRotation(MediaPlayer360.TextureRotation.CW_180); // 适应视频方向
+```
+
+### 安卓应用中的视频展示
+```csharp
+// 在安卓应用中播放视频
+MediaPlayer player = GetComponent<MediaPlayer>();
+player.SetUrl("file:///storage/emulated/0/DCIM/Camera/video.mp4");
+player.Play();
 ```
 
 ## 🔌 依赖项
@@ -147,6 +170,7 @@ player.SetUrl("https://example.com/360tour.mp4");
 1. **性能考虑**：全景视频分辨率对性能影响较大，请根据目标平台适当调整
 2. **平台特定设置**：在移动平台上发布前，请检查平台特定的设置和权限
 3. **视频方向问题**：不同来源的360视频可能需要不同的翻转/旋转设置
+4. **安卓兼容性**：针对不同安卓设备的兼容性已优化，但在极低配置设备上可能需要进一步调整
 
 ## 📄 许可证
 

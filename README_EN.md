@@ -44,16 +44,20 @@ MSO-Player is a powerful video playback solution for Unity, built on the libVLC 
 - ✅ **Real-time Rendering Optimization**: Efficient video frame processing and rendering
 - ✅ **Automatic Quality Switching**: Automatically adjusts video quality based on network conditions
 - ✅ **Enhanced Stability**: Improved error handling and playback stability
+- ✅ **Android Platform Support**: Full support for Android devices, including basic hardware acceleration
+- ✅ **Optimized Plugin Structure**: More rational directory organization, improving development efficiency
 
 ## 🚀 Quick Start
 
 ### Requirements
 - Unity 2019.4 or later
-- Supported platforms: Windows, macOS, Linux, Android, iOS
+- Supported platforms: Windows, macOS, Linux, Android
 
 ### Installation
 1. Import the MSO-Player folder into your Unity project
 2. Ensure libVLC related DLL files are included in your project (located in the Plugins folder)
+   - Windows: Plugins/x86_64/libvlc/
+   - Android: Plugins/Android/
 
 ### Basic Usage - Standard Video
 1. Create a UI object with a RawImage component
@@ -80,6 +84,13 @@ player.SetUrl("https://example.com/panorama.mp4", true);
 player.SetTextureRotation(MediaPlayer360.TextureRotation.CW_90); // Adjust video orientation
 ```
 
+### Android Platform Specific Notes
+When using on Android platform, ensure to add the following permissions in AndroidManifest.xml:
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+```
+
 ## 📚 Key Components
 
 ### MediaPlayer
@@ -103,6 +114,7 @@ Panoramic video player component for playing 360° videos on a sphere.
 **Main Properties:**
 - All properties inherited from MediaPlayer
 - `FlipY`: Enable/disable Y-axis flipping for 360° videos
+- `RotationMode`: Video rotation mode (applicable for videos from different sources)
 
 **Main Methods:**
 - All methods inherited from MediaPlayer
@@ -111,6 +123,7 @@ Panoramic video player component for playing 360° videos on a sphere.
 - `Pause()`: Pause/resume playback
 - `Stop()`: Stop playback
 - `Refresh()`: Refresh the current media
+- `SetTextureRotation(TextureRotation rotation)`: Set video texture rotation
 
 ### CameraController360
 Component for controlling the 360° panoramic camera, supporting multiple input methods.
@@ -139,6 +152,14 @@ player.SetUrl("https://example.com/360tour.mp4");
 player.SetTextureRotation(MediaPlayer360.TextureRotation.CW_180); // Adapt to video orientation
 ```
 
+### Video Display in Android Applications
+```csharp
+// Play video in an Android app
+MediaPlayer player = GetComponent<MediaPlayer>();
+player.SetUrl("file:///storage/emulated/0/DCIM/Camera/video.mp4");
+player.Play();
+```
+
 ## 🔌 Dependencies
 
 - [LibVLC](https://www.videolan.org/vlc/libvlc.html) - Video decoding and processing
@@ -149,6 +170,7 @@ player.SetTextureRotation(MediaPlayer360.TextureRotation.CW_180); // Adapt to vi
 1. **Performance Considerations**: Panoramic video resolution has a significant impact on performance; please adjust appropriately based on the target platform
 2. **Platform-Specific Settings**: Check platform-specific settings and permissions before publishing on mobile platforms
 3. **Video Orientation Issues**: 360° videos from different sources may require different flip/rotation settings
+4. **Android Compatibility**: Compatibility has been optimized for different Android devices, but further adjustments may be needed on extremely low-configuration devices
 
 ## 📄 License
 
