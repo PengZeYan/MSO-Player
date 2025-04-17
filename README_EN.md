@@ -46,6 +46,9 @@ MSO-Player is a powerful video playback solution for Unity, built on the libVLC 
 - ✅ **Enhanced Stability**: Improved error handling and playback stability
 - ✅ **Android Platform Support**: Full support for Android devices, including basic hardware acceleration
 - ✅ **Optimized Plugin Structure**: More rational directory organization, improving development efficiency
+- ✅ **Hardware Decoding Acceleration**: Support for GPU hardware decoding, enhancing playback performance and reducing power consumption
+- ✅ **Specific Device Optimization**: Special optimizations for specific Android devices like Xiaomi and Samsung
+- ✅ **Low-Performance Device Adaptation**: Special optimizations for low-configuration phones to ensure smooth playback experience
 
 ## 🚀 Quick Start
 
@@ -171,6 +174,11 @@ player.Play();
 2. **Platform-Specific Settings**: Check platform-specific settings and permissions before publishing on mobile platforms
 3. **Video Orientation Issues**: 360° videos from different sources may require different flip/rotation settings
 4. **Android Compatibility**: Compatibility has been optimized for different Android devices, but further adjustments may be needed on extremely low-configuration devices
+5. **Hardware Acceleration**: On supported devices, hardware decoding is automatically enabled to improve performance
+6. **Device-Specific Optimizations**:
+   - Xiaomi devices: Optimized video decoding and rendering for MIUI system
+   - Samsung devices: Special optimizations for both Exynos and Snapdragon processors
+   - Low-performance devices: Optional low-resolution mode with automatic buffer strategy adjustment
 
 ## 📄 License
 
