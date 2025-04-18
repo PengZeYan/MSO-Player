@@ -497,7 +497,7 @@ GameObject:
   - component: {fileID: 6398802843159940107}
   - component: {fileID: 414271889437480499}
   - component: {fileID: 7199012138687037150}
-  - component: {fileID: 7060804135903753427}
+  - component: {fileID: 7199012138687037151}
   m_Layer: 5
   m_Name: Video
   m_TagString: Untagged
@@ -524,24 +524,6 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: -40, y: -40}
   m_Pivot: {x: 0.5, y: 0.5}
---- !u!114 &7060804135903753427
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 6331251161249922893}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 8a652fbbfa1d9d94c8ecf4c3ff40e9fd, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10092/hls/EasyGBS1310810000200000011513108100001310587812?sign=21OGf4c7g
-  m_Width: 1920
-  m_Height: 1080
-  m_AutoscaleRawImage: 1
-  m_Mute: 1
-  m_PlayOnStart: 1
 --- !u!114 &7199012138687037150
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -569,6 +551,24 @@ MonoBehaviour:
     y: 0
     width: 1
     height: -1
+--- !u!114 &7199012138687037151
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6331251161249922893}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Url: rtmp://222.222.65.164:10092/hls/EasyGBS1310810000200000011513108100001310587812?sign=21OGf4c7g
+  m_Width: 1280
+  m_Height: 720
+  m_AutoscaleRawImage: 1
+  m_Mute: 1
+  m_PlayOnStart: 1
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

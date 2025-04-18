@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -23,26 +24,73 @@ namespace yan.libvlc
         /// <param name="report">构建报告</param>
         public void OnPostprocessBuild(BuildReport report)
         {
+            // 仅在Windows平台执行
+            if (report.summary.platform != BuildTarget.StandaloneWindows && 
+                report.summary.platform != BuildTarget.StandaloneWindows64)
+            {
+                Debug.Log("LibVLC插件复制仅支持Windows平台，当前构建平台跳过");
+                return;
+            }
+
             // 获取构建输出路径
             string outputPath = report.summary.outputPath;
             outputPath = outputPath.Remove(outputPath.IndexOf(Application.productName + ".exe"), Application.productName.Length + 4);
-            
+
             // 构建目标插件路径
             string targetPath = Path.Combine(outputPath, Application.productName + "_Data", "Plugins", "x86_64");
 
             // 查找LibVLC源目录
             string sourcePath = FindLibVLCSourcePath();
-            
+
             if (string.IsNullOrEmpty(sourcePath))
             {
                 Debug.LogError("未能找到LibVLC插件目录，构建后处理失败！");
                 return;
             }
 
+            // 清理目标目录中可能存在的重复DLL
+            CleanupDuplicateDlls(targetPath);
+
             // 开始复制文件
             Debug.Log($"正在复制LibVLC插件到: {targetPath}");
             CopyDirectory(sourcePath, targetPath);
             Debug.Log("LibVLC插件复制完成");
+        }
+
+        /// <summary>
+        /// 清理目标目录中的重复DLL文件
+        /// </summary>
+        /// <param name="targetDir">目标目录</param>
+        private void CleanupDuplicateDlls(string targetDir)
+        {
+            if (!Directory.Exists(targetDir))
+                return;
+
+            // 收集所有DLL文件
+            var dllFiles = Directory.GetFiles(targetDir, "*.dll", SearchOption.AllDirectories)
+                .Select(path => new FileInfo(path))
+                .GroupBy(file => file.Name.ToLower())
+                .Where(group => group.Count() > 1);
+
+            foreach (var group in dllFiles)
+            {
+                Debug.Log($"发现重复DLL: {group.Key}, 实例数: {group.Count()}");
+                
+                // 保留最新的一个文件，删除其他副本
+                var orderedFiles = group.OrderByDescending(file => file.LastWriteTime).ToList();
+                for (int i = 1; i < orderedFiles.Count; i++)
+                {
+                    Debug.Log($"删除重复DLL: {orderedFiles[i].FullName}");
+                    try
+                    {
+                        File.Delete(orderedFiles[i].FullName);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        Debug.LogWarning($"无法删除文件: {orderedFiles[i].FullName}, 错误: {ex.Message}");
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -57,7 +105,7 @@ namespace yan.libvlc
             {
                 return standardPath;
             }
-            
+
             // 如果标准位置未找到，在整个Assets目录递归查找
             return FindLibVLCInAllPlugins("Assets", "Plugins/x86_64", "libvlc");
         }
@@ -131,14 +179,44 @@ namespace yan.libvlc
                 Directory.CreateDirectory(targetDir);
             }
 
-            // 复制所有文件（排除.meta文件）
+            // 收集目标目录中已存在的文件
+            HashSet<string> existingFiles = new HashSet<string>();
+            if (Directory.Exists(targetDir))
+            {
+                foreach (string file in Directory.GetFiles(targetDir))
+                {
+                    existingFiles.Add(Path.GetFileName(file).ToLower());
+                }
+            }
+
+            // 复制所有文件（排除.meta文件和已存在的相同文件）
             foreach (string file in Directory.GetFiles(sourceDir))
             {
-                if (!file.EndsWith(".meta"))
+                if (file.EndsWith(".meta"))
+                    continue;
+                
+                string fileName = Path.GetFileName(file);
+                string destFile = Path.Combine(targetDir, fileName);
+                
+                // 如果目标文件已存在，检查是否需要更新
+                if (existingFiles.Contains(fileName.ToLower()))
                 {
-                    string destFile = Path.Combine(targetDir, Path.GetFileName(file));
-                    File.Copy(file, destFile, true);
+                    // 如果源文件与目标文件大小和修改时间相同，则跳过
+                    FileInfo sourceInfo = new FileInfo(file);
+                    FileInfo destInfo = new FileInfo(destFile);
+                    
+                    if (destInfo.Exists && 
+                        sourceInfo.Length == destInfo.Length && 
+                        sourceInfo.LastWriteTime <= destInfo.LastWriteTime)
+                    {
+                        Debug.Log($"跳过复制已存在的文件: {fileName}");
+                        continue;
+                    }
                 }
+                
+                // 复制新文件或更新已存在的文件
+                File.Copy(file, destFile, true);
+                //Debug.Log($"复制文件: {fileName}");
             }
 
             // 递归复制所有子目录

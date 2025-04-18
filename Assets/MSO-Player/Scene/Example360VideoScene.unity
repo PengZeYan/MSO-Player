@@ -575,14 +575,14 @@ MonoBehaviour:
   m_GameObject: {fileID: 1773219596}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e1f4b944889a2544a920f7510ed73a8a, type: 3}
+  m_Script: {fileID: 11500000, guid: dd42adc619e6a5d4fa22256af673c788, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   m_HorizontalSensitivity: 2
   m_VerticalSensitivity: 2
   m_SmoothTime: 0.1
   m_VerticalLimit: 80
-  m_UseGyroscope: 0
+  m_UseGyroscope: 1
   m_GyroSensitivity: 1
 --- !u!1 &1902273257
 GameObject:
@@ -677,12 +677,12 @@ MonoBehaviour:
   m_GameObject: {fileID: 1902273257}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d9c719c71707f6443a26f2ca60bd0c30, type: 3}
+  m_Script: {fileID: 11500000, guid: 242567b5f87677648abadb7dc87dedbc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://localhost/live/test
-  m_Width: 3840
-  m_Height: 2160
+  m_Url: rtmp://222.222.65.164:10092/hls/EasyGBS1310810000200000011513108100001310587812?sign=21OGf4c7g
+  m_Width: 1920
+  m_Height: 960
   m_Mute: 0
   m_PlayOnStart: 1
   m_FlipY: 1
