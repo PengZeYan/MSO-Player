@@ -60,8 +60,4 @@ Docs/Images/~*
 *.cursorignore
 /[Aa]ssets/StreamingAssets/*/
 /[Aa]ssets/StreamingAssets/aa/*
-/[Aa]ssets/StreamingAssets/aa.meta
-
-# 忽略超大的Android库文件
-Assets/MSO-Player/Plugins/Android/libs/arm64-v8a/libvlc.so
-Assets/MSO-Player/Plugins/Android/libs/armeabi-v7a/libvlc.so 
+/[Aa]ssets/StreamingAssets/aa.meta 
