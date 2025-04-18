@@ -1,3 +1,13 @@
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
+# MSO-Player
+
+<div align="center">
+  <img src="Docs/Image/MSO-Player_logo.png" alt="MSO-Player Logo" width="200" />
+  <h3>基于libVLC的Unity视频播放解决方案</h3>
+  <p>支持2D视频和360度全景视频播放的Unity插件</p>
+  <p><a href="README.md">🌏 中文</a> | <a href="README_EN.md">🌟 English</a></p>
+</div>
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
@@ -12,17 +22,6 @@
   - [📋 注意事项](#-注意事项)
   - [📄 许可证](#-许可证)
   - [📞 联系与支持](#-联系与支持)
-
-<!-- END doctoc generated TOC please keep comment here to allow auto update -->
-
-# MSO-Player
-
-<div align="center">
-  <img src="Docs/Image/MSO-Player_logo.png" alt="MSO-Player Logo" width="200" />
-  <h3>基于libVLC的Unity视频播放解决方案</h3>
-  <p>支持2D视频和360度全景视频播放的Unity插件</p>
-  <p><a href="README.md">🌏 中文</a> | <a href="README_EN.md">🌟 English</a></p>
-</div>
 
 ## 📋 功能概述
 

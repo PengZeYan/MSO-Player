@@ -1,5 +1,13 @@
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+# MSO-Player
+
+<div align="center">
+  <img src="Docs/Image/MSO-Player_logo.png" alt="MSO-Player Logo" width="200" />
+  <h3>Unity Video Playback Solution Based on libVLC</h3>
+  <p>A Unity plugin that supports 2D video and 360° panoramic video playback</p>
+  <p><a href="README.md">🌏 中文</a> | <a href="README_EN.md">🌟 English</a></p>
+</div>
 
 ## 📑 Table of Contents
 
@@ -14,15 +22,6 @@
   - [📞 Contact & Support](#-contact--support)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
-
-# MSO-Player
-
-<div align="center">
-  <img src="Docs/Image/MSO-Player_logo.png" alt="MSO-Player Logo" width="200" />
-  <h3>Unity Video Playback Solution Based on libVLC</h3>
-  <p>A Unity plugin that supports 2D video and 360° panoramic video playback</p>
-  <p><a href="README.md">🌏 中文</a> | <a href="README_EN.md">🌟 English</a></p>
-</div>
 
 ## 📋 Features
 
