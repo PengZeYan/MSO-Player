@@ -31,6 +31,8 @@ MSO-Player是一个为Unity开发的强大视频播放解决方案，基于libVL
 ### 演示
 ![基本功能演示](Docs/Video/demo.gif)
 
+![Android平台演示](Docs/Image/AndroidPlayer.png)
+
 ### 核心特性
 - ✅ **普通视频播放**：在UI上或3D物体上播放常规视频
 - ✅ **360度全景视频**：沉浸式全景视频体验，支持鼠标/触摸/陀螺仪控制

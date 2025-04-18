@@ -31,6 +31,8 @@ MSO-Player is a powerful video playback solution for Unity, built on the libVLC 
 ### Demo
 ![Basic Features Demo](Docs/Video/demo.gif)
 
+![Android Platform Demo](Docs/Image/AndroidPlayer.png)
+
 ### Core Features
 - ✅ **Standard Video Playback**: Play regular videos on UI or 3D objects
 - ✅ **360° Panoramic Video**: Immersive panoramic video experience with mouse/touch/gyroscope control
