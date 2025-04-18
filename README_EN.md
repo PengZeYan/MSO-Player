@@ -62,6 +62,8 @@ MSO-Player is a powerful video playback solution for Unity, built on the libVLC 
    - Windows: Plugins/x86_64/libvlc/
    - Android: Plugins/Android/
 
+> **Note**: Large library files for Android platform (`libvlc.so` and `libmla.so`) exceed GitHub's file size limit and need to be downloaded separately from the [Releases page](https://github.com/PengZeYan/MSO-Player/releases). For detailed instructions, please check the [Android Plugin README](Assets/MSO-Player/Plugins/Android/README.md).
+
 ### Basic Usage - Standard Video
 1. Create a UI object with a RawImage component
 2. Add the `MediaPlayer` component
