@@ -37,10 +37,7 @@ MSO-Player is a powerful video playback solution for Unity, built on the libVLC 
 - ✅ **360° Panoramic Video**: Immersive panoramic video experience with mouse/touch/gyroscope control
 - ✅ **Multiple Format Support**: Based on libVLC, supports almost all popular video formats and streaming protocols
 - ✅ **Streaming Support**: RTSP, RTMP, HTTP and other streaming protocols
-- ✅ **Full Directional Adjustment**: Supports video flipping and rotation for easy adaptation to various source videos
 - ✅ **Ultra-High Performance Playback**: High-performance video rendering optimized for mobile devices
-- ✅ **Multiple Playback Routes**: Supports multiple playback routes with automatic switching to the best route
-- ✅ **Advanced Error Recovery**: Intelligent error detection and automatic recovery mechanism
 - ✅ **Enhanced Memory Management**: Optimized texture management and memory usage
 - ✅ **Real-time Rendering Optimization**: Efficient video frame processing and rendering
 - ✅ **Automatic Quality Switching**: Automatically adjusts video quality based on network conditions
@@ -61,8 +58,6 @@ MSO-Player is a powerful video playback solution for Unity, built on the libVLC 
 2. Ensure libVLC related DLL files are included in your project (located in the Plugins folder)
    - Windows: Plugins/x86_64/libvlc/
    - Android: Plugins/Android/
-
-> **Note**: Large library files for Android platform (`libvlc.so` and `libmla.so`) exceed GitHub's file size limit and need to be downloaded separately from the [Releases page](https://github.com/PengZeYan/MSO-Player/releases). For detailed instructions, please check the [Android Plugin README](Assets/MSO-Player/Plugins/Android/README.md).
 
 ### Basic Usage - Standard Video
 1. Create a UI object with a RawImage component

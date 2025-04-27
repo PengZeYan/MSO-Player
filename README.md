@@ -37,7 +37,6 @@ MSO-Player是一个为Unity开发的强大视频播放解决方案，基于libVL
 - ✅ **360度全景视频**：沉浸式全景视频体验，支持鼠标/触摸/陀螺仪控制
 - ✅ **多种格式支持**：基于libVLC，几乎支持所有流行的视频格式和流媒体协议
 - ✅ **流媒体支持**：RTSP、RTMP、HTTP等流媒体协议
-- ✅ **全方位方向调整**：支持视频翻转、旋转，轻松适配各种源视频
 - ✅ **超高性能播放**：针对移动设备优化的高性能视频渲染
 - ✅ **多播放线路**：支持多条播放线路，自动切换最佳线路
 - ✅ **高级错误恢复**：智能错误检测和自动恢复机制
@@ -61,8 +60,6 @@ MSO-Player是一个为Unity开发的强大视频播放解决方案，基于libVL
 2. 确保项目中已包含 libVLC 相关 dll 文件（位于 Plugins 文件夹）
    - Windows: Plugins/x86_64/libvlc/
    - Android: Plugins/Android/
-
-> **注意**：Android平台的大型库文件 (`libvlc.so` 和 `libmla.so`) 由于超过GitHub的文件大小限制，需要从[Releases页面](https://github.com/PengZeYan/MSO-Player/releases)单独下载。详细说明请查看 [Android插件README](Assets/MSO-Player/Plugins/Android/README.md)。
 
 ### 基本使用 - 普通视频
 1. 创建一个带有 RawImage 组件的 UI 对象
