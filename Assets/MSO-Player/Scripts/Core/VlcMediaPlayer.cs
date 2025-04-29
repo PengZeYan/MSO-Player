@@ -177,6 +177,7 @@ namespace yan.libvlc.Core
             if (_mediaPlayer != IntPtr.Zero)
             {
                 LibVLCWrapper.libvlc_media_player_stop(_mediaPlayer);
+                SetBlankFrame();
             }
         }
 
@@ -575,6 +576,25 @@ namespace yan.libvlc.Core
             {
                 Debug.LogError($"释放VLC资源时发生错误: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 设置空白画面
+        /// </summary>
+        private void SetBlankFrame()
+        {
+            // 创建一个指定颜色的画面，这里以灰色为例 (128, 128, 128)
+            byte[] blankFrame = new byte[_width * _channels * _height];
+            for (int i = 0; i < blankFrame.Length; i += _channels)
+            {
+                blankFrame[i] = 50;     // R
+                blankFrame[i + 1] = 50; // G
+                blankFrame[i + 2] = 50; // B
+            }
+
+            // 更新当前图像为空白画面
+            _currentImage = blankFrame;
+            _update = true;
         }
 
         #endregion

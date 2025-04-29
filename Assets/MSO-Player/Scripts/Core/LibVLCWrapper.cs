@@ -345,6 +345,86 @@ namespace yan.libvlc.Core
         [DllImport("libvlc")]
         internal static extern void libvlc_media_player_set_pause(IntPtr mediaPlayer, int doPause);
 
+        /// <summary>
+        /// 设置当前播放时间（毫秒）
+        /// </summary>
+        /// <param name="mediaPlayer">媒体播放器</param>
+        /// <param name="time">目标时间（毫秒）</param>
+        /// <returns>成功返回0，失败返回-1</returns>
+        [DllImport("libvlc")]
+        internal static extern int libvlc_media_player_set_time(IntPtr mediaPlayer, Int64 time);
+
+        /// <summary>
+        /// 获取当前播放位置（0.0-1.0）
+        /// </summary>
+        /// <param name="mediaPlayer">媒体播放器</param>
+        /// <returns>当前位置（0.0-1.0），错误则返回-1.0</returns>
+        [DllImport("libvlc")]
+        internal static extern float libvlc_media_player_get_position(IntPtr mediaPlayer);
+
+        /// <summary>
+        /// 设置播放位置（0.0-1.0）
+        /// </summary>
+        /// <param name="mediaPlayer">媒体播放器</param>
+        /// <param name="position">目标位置（0.0-1.0）</param>
+        /// <returns>成功返回0，失败返回-1</returns>
+        [DllImport("libvlc")]
+        internal static extern int libvlc_media_player_set_position(IntPtr mediaPlayer, float position);
+
+        /// <summary>
+        /// 检查媒体是否可跳转
+        /// </summary>
+        /// <param name="mediaPlayer">媒体播放器</param>
+        /// <returns>如果可跳转则为true，否则为false</returns>
+        [DllImport("libvlc")]
+        internal static extern bool libvlc_media_player_is_seekable(IntPtr mediaPlayer);
+
+        /// <summary>
+        /// 获取媒体时长（毫秒）
+        /// </summary>
+        /// <param name="mediaPlayer">媒体播放器</param>
+        /// <returns>媒体时长（毫秒），错误则返回-1</returns>
+        [DllImport("libvlc")]
+        internal static extern Int64 libvlc_media_player_get_length(IntPtr mediaPlayer);
+
+        #endregion
+
+        #region 音频控制
+
+        /// <summary>
+        /// 获取当前音量（0-100）
+        /// </summary>
+        /// <param name="mediaPlayer">媒体播放器</param>
+        /// <returns>当前音量（0-100），错误则返回-1</returns>
+        [DllImport("libvlc")]
+        internal static extern int libvlc_audio_get_volume(IntPtr mediaPlayer);
+
+        /// <summary>
+        /// 设置音量（0-100）
+        /// </summary>
+        /// <param name="mediaPlayer">媒体播放器</param>
+        /// <param name="volume">目标音量（0-100）</param>
+        /// <returns>成功返回0，失败返回-1</returns>
+        [DllImport("libvlc")]
+        internal static extern int libvlc_audio_set_volume(IntPtr mediaPlayer, int volume);
+
+        /// <summary>
+        /// 静音或取消静音
+        /// </summary>
+        /// <param name="mediaPlayer">媒体播放器</param>
+        /// <param name="mute">1表示静音，0表示取消静音</param>
+        /// <returns>成功返回0，失败返回-1</returns>
+        [DllImport("libvlc")]
+        internal static extern int libvlc_audio_set_mute(IntPtr mediaPlayer, int mute);
+
+        /// <summary>
+        /// 获取静音状态
+        /// </summary>
+        /// <param name="mediaPlayer">媒体播放器</param>
+        /// <returns>如果静音则为1，否则为0，错误则为-1</returns>
+        [DllImport("libvlc")]
+        internal static extern int libvlc_audio_get_mute(IntPtr mediaPlayer);
+
         #endregion
 
         #region 媒体对象

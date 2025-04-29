@@ -32,7 +32,7 @@ namespace yan.libvlc
         private bool m_Mute = true;
 
         [SerializeField, Tooltip("启动时自动播放")]
-        private bool m_PlayOnStart = false;
+        private bool m_PlayOnAwake = false;
 
         #endregion
 
@@ -84,11 +84,11 @@ namespace yan.libvlc
 
         #region Unity生命周期方法
 
-        private void Start()
+        private void Awake()
         {
             InitializeRawImage();
 
-            if (m_PlayOnStart)
+            if (m_PlayOnAwake)
                 Play();
         }
 
