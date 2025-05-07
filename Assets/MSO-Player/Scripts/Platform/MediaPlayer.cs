@@ -164,6 +164,11 @@ namespace yan.libvlc
             {
                 m_Player.Pause(); // 通过Pause方法切换播放状态
             }
+
+            if (m_Player.IsPlaying())
+            {
+                m_Player.UpdateUrl(m_Url);
+            }
         }
 
         /// <summary>

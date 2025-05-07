@@ -149,6 +149,76 @@ public class PlayerController : MonoBehaviour
         // 在播放器组件中获取VLC播放器实例
         InitializeExtendedPlayer();
     }
+    
+    /// <summary>
+    /// 无感切换媒体URL
+    /// </summary>
+    /// <param name="url">新的媒体URL</param>
+    public void SmoothSwitchUrl(string url)
+    {
+        if (string.IsNullOrEmpty(url))
+        {
+            Debug.LogError("媒体URL不能为空");
+            return;
+        }
+        
+        // 显示缓冲指示器
+        if (bufferingIndicator != null)
+        {
+            bufferingIndicator.SetActive(true);
+        }
+        
+        // 保存当前URL以便循环播放
+        currentMediaUrl = url;
+        
+        // 初步检测是否为直播流（基于URL协议和后缀的初步判断）
+        bool newUrlIsLiveStream = IsLikelyLiveStream(url);
+        
+        // 如果不存在扩展播放器则初始化
+        if (extendedPlayer == null)
+        {
+            InitializeExtendedPlayer();
+            if (extendedPlayer == null)
+            {
+                // 如果无法初始化扩展播放器，使用常规方法切换
+                SetMediaUrl(url, true);
+                return;
+            }
+        }
+        
+        // 获取扩展播放器使用的内部VLC播放器实例
+        System.Reflection.FieldInfo fieldInfo = typeof(MediaPlayer).GetField("m_Player", 
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            
+        VlcMediaPlayer vlcPlayer = fieldInfo?.GetValue(mediaPlayer) as VlcMediaPlayer;
+        
+        if (vlcPlayer != null)
+        {
+            // 使用平滑切换方法
+            vlcPlayer.UpdateUrlSmooth(url, () => {
+                // 切换完成后更新UI
+                isLiveStream = newUrlIsLiveStream;
+                UpdateLiveStreamUI(isLiveStream);
+                
+                if (bufferingIndicator != null)
+                {
+                    bufferingIndicator.SetActive(false);
+                }
+                
+                // 启动分辨率和直播状态检查
+                StartCoroutine(DelayedResolutionCheck());
+                StartCoroutine(DelayedLiveStreamCheck());
+                
+                // 更新播放/暂停按钮状态
+                UpdatePlayPauseButton();
+            });
+        }
+        else
+        {
+            // 回退到常规方法
+            SetMediaUrl(url, true);
+        }
+    }
 
     /// <summary>
     /// 播放/暂停切换

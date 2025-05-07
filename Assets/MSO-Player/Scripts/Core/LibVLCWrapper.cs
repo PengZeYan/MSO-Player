@@ -127,6 +127,23 @@ namespace yan.libvlc.Core
     public delegate void DisplayCB(IntPtr opaque, IntPtr picture);
 
     /// <summary>
+    /// 媒体解析状态枚举
+    /// </summary>
+    public enum libvlc_media_parsed_status_t
+    {
+        /// <summary>媒体未解析</summary>
+        libvlc_media_parsed_status_none = 0,
+        /// <summary>媒体解析进行中</summary>
+        libvlc_media_parsed_status_pending,
+        /// <summary>媒体解析完成</summary>
+        libvlc_media_parsed_status_done,
+        /// <summary>媒体解析失败</summary>
+        libvlc_media_parsed_status_failed,
+        /// <summary>媒体解析超时</summary>
+        libvlc_media_parsed_status_timeout
+    }
+
+    /// <summary>
     /// LibVLC库封装类
     /// 参考文档: https://videolan.videolan.me/vlc/group__libvlc.html
     /// </summary>
@@ -437,6 +454,26 @@ namespace yan.libvlc.Core
         [DllImport("libvlc")]
         internal static extern void libvlc_media_add_option(IntPtr p_md, string psz_options);
 
+        #endregion
+
+        #region 媒体解析
+
+        /// <summary>
+        /// 异步解析媒体信息
+        /// </summary>
+        /// <param name="media">媒体指针</param>
+        /// <param name="parseFlag">解析标志</param>
+        [DllImport("libvlc")]
+        internal static extern void libvlc_media_parse_async(IntPtr media);
+        
+        /// <summary>
+        /// 获取媒体的解析状态
+        /// </summary>
+        /// <param name="media">媒体指针</param>
+        /// <returns>媒体解析状态</returns>
+        [DllImport("libvlc")]
+        internal static extern libvlc_media_parsed_status_t libvlc_media_get_parsed_status(IntPtr media);
+        
         #endregion
     }
 }

@@ -3042,7 +3042,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: https://sf1-cdn-tos.huoshanstatic.com/obj/media-fe/xgplayer_doc_video/hls/xgplayer-demo.m3u8
+  m_Url: 
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0

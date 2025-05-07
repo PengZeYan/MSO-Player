@@ -7,6 +7,102 @@ using System.Collections.Generic;
 namespace yan.libvlc.Core
 {
     /// <summary>
+    /// 提供一些用于主线程执行的工具方法
+    /// </summary>
+    public static class ApplicationExtensions
+    {
+        /// <summary>
+        /// 在主线程上执行操作
+        /// </summary>
+        /// <param name="application">Application静态类</param>
+        /// <param name="action">要执行的操作</param>
+        public static void InvokeOnMainThread(this UnityEngine.Application application, Action action)
+        {
+            if (action == null) return;
+            
+            // 如果已经在主线程上，则直接执行
+            if (Thread.CurrentThread.ManagedThreadId == 1)
+            {
+                action();
+                return;
+            }
+            
+            // 使用Unity的主线程同步上下文执行
+            UnityMainThreadDispatcher.Instance.Enqueue(action);
+        }
+    }
+    
+    /// <summary>
+    /// 主线程调度器，用于在主线程上执行操作
+    /// </summary>
+    public class UnityMainThreadDispatcher : MonoBehaviour
+    {
+        private static UnityMainThreadDispatcher _instance;
+        
+        /// <summary>
+        /// 获取实例（如果不存在则创建）
+        /// </summary>
+        public static UnityMainThreadDispatcher Instance
+        {
+            get
+            {
+                if (_instance == null)
+                {
+                    // 在场景中查找现有实例
+                    _instance = FindObjectOfType<UnityMainThreadDispatcher>();
+                    
+                    // 如果不存在，则创建一个新的游戏对象
+                    if (_instance == null)
+                    {
+                        GameObject go = new GameObject("UnityMainThreadDispatcher");
+                        _instance = go.AddComponent<UnityMainThreadDispatcher>();
+                        DontDestroyOnLoad(go);
+                    }
+                }
+                
+                return _instance;
+            }
+        }
+        
+        private readonly Queue<Action> _actionQueue = new Queue<Action>();
+        private readonly object _queueLock = new object();
+        
+        /// <summary>
+        /// 将操作添加到队列
+        /// </summary>
+        /// <param name="action">要执行的操作</param>
+        public void Enqueue(Action action)
+        {
+            if (action == null) return;
+            
+            lock (_queueLock)
+            {
+                _actionQueue.Enqueue(action);
+            }
+        }
+        
+        private void Update()
+        {
+            lock (_queueLock)
+            {
+                while (_actionQueue.Count > 0)
+                {
+                    Action action = _actionQueue.Dequeue();
+                    
+                    try
+                    {
+                        action();
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogError($"执行主线程操作时发生异常: {ex.Message}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// LibVLC播放器核心类，负责与libvlc库的底层交互
     /// </summary>
     public class VlcMediaPlayer : IDisposable
@@ -208,6 +304,106 @@ namespace yan.libvlc.Core
         }
 
         /// <summary>
+        /// 无感更新播放地址（预先加载方式）
+        /// </summary>
+        /// <param name="newUrl">新的媒体URL</param>
+        /// <param name="transitionCallback">转换完成后的回调</param>
+        public void UpdateUrlSmooth(string newUrl, Action transitionCallback = null)
+        {
+            if (string.IsNullOrEmpty(newUrl) || _libvlc == IntPtr.Zero)
+            {
+                Debug.LogError("无效的URL或LibVLC实例未初始化");
+                return;
+            }
+
+            // 检查是否为网络流，网络流使用特殊处理
+            bool isNetworkStream = newUrl.ToLower().StartsWith("rtmp://") ||
+                                  newUrl.ToLower().StartsWith("rtsp://") ||
+                                  newUrl.ToLower().StartsWith("http://") ||
+                                  newUrl.ToLower().StartsWith("https://");
+
+            // 创建新的媒体对象
+            IntPtr newMedia = LibVLCWrapper.libvlc_media_new_location(_libvlc, newUrl);
+            if (newMedia == IntPtr.Zero)
+            {
+                Debug.LogError("无法创建新的媒体对象");
+                return;
+            }
+
+            // 应用网络流优化参数
+            if (isNetworkStream)
+            {
+                // 设置低延迟参数
+                LibVLCWrapper.libvlc_media_add_option(newMedia, ":network-caching=100");
+                LibVLCWrapper.libvlc_media_add_option(newMedia, ":clock-jitter=0");
+                LibVLCWrapper.libvlc_media_add_option(newMedia, ":live-caching=50");
+                // 对于直播流，添加此选项可能会减少首次播放延迟
+                LibVLCWrapper.libvlc_media_add_option(newMedia, ":file-caching=50");
+            }
+
+            // 预解析媒体以提前缓冲
+            LibVLCWrapper.libvlc_media_parse_async(newMedia);
+
+            // 等待预解析完成，然后快速切换
+            System.Threading.ThreadPool.QueueUserWorkItem(_ => {
+                // 等待解析完成，最长等待500ms
+                int waitCount = 0;
+                int maxWait = 50; // 10ms * 50 = 500ms
+                
+                while (waitCount < maxWait)
+                {
+                    libvlc_media_parsed_status_t status = LibVLCWrapper.libvlc_media_get_parsed_status(newMedia);
+                    if (status == libvlc_media_parsed_status_t.libvlc_media_parsed_status_done ||
+                        status == libvlc_media_parsed_status_t.libvlc_media_parsed_status_failed)
+                    {
+                        break;
+                    }
+                    
+                    System.Threading.Thread.Sleep(10);
+                    waitCount++;
+                }
+                
+                // 在主线程中执行切换
+                UnityMainThreadDispatcher.Instance.Enqueue(() => {
+                    try
+                    {
+                        // 记录上一个图像数据
+                        byte[] lastImageData = null;
+                        if (_currentImage != null)
+                        {
+                            lastImageData = new byte[_currentImage.Length];
+                            Array.Copy(_currentImage, lastImageData, _currentImage.Length);
+                        }
+                        
+                        // 快速停止当前播放但不释放资源
+                        if (_mediaPlayer != IntPtr.Zero)
+                        {
+                            LibVLCWrapper.libvlc_media_player_stop(_mediaPlayer);
+                        }
+
+                        // 设置新媒体并立即播放
+                        LibVLCWrapper.libvlc_media_player_set_media(_mediaPlayer, newMedia);
+                        LibVLCWrapper.libvlc_media_player_play(_mediaPlayer);
+                        
+                        // 如果有最后一帧数据，在新视频加载期间继续显示
+                        if (lastImageData != null)
+                        {
+                            _currentImage = lastImageData;
+                        }
+                        
+                        // 调用回调
+                        transitionCallback?.Invoke();
+                    }
+                    finally
+                    {
+                        // 释放媒体对象
+                        LibVLCWrapper.libvlc_media_release(newMedia);
+                    }
+                });
+            });
+        }
+
+        /// <summary>
         /// 检查是否正在播放
         /// </summary>
         /// <returns>如果正在播放则返回true，否则返回false</returns>
@@ -299,8 +495,8 @@ namespace yan.libvlc.Core
                 {
                     // 自定义网络缓冲参数列表
                     List<string> argsList = new List<string>(args);
-                    argsList.Add("--network-caching=3000");  // 增加网络缓存
-                    argsList.Add("--live-caching=3000");     // 直播流缓存
+                    argsList.Add("--network-caching=100");  // 增加网络缓存
+                    argsList.Add("--live-caching=100");     // 直播流缓存
                     argsList.Add("--clock-jitter=0");        // 减少时钟抖动
                     argsList.Add("--clock-synchro=0");       // 禁用时钟同步
                     args = argsList.ToArray();
