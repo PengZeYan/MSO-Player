@@ -52,6 +52,7 @@ namespace yan.libvlc
         private int m_FailedRecoveryAttempts = 0; // 记录恢复播放失败的次数
         private const int MAX_RECOVERY_ATTEMPTS = 3; // 最大恢复尝试次数
         private WaitForSeconds m_StatusCheckWait; // 缓存WaitForSeconds对象
+        private Coroutine m_StatusMonitorCoroutine; // 缓存监控协程
 
         #endregion
 
@@ -147,6 +148,59 @@ namespace yan.libvlc
         {
             CleanupResources();
         }
+        
+        private void OnEnable()
+        {
+            // 界面启用时恢复播放
+            if (m_Player != null)
+            {
+                // 不管当前状态，都尝试开始播放
+                if (!m_Player.IsPlaying())
+                {
+                    Debug.Log("360°播放器界面重新启用，恢复播放");
+                    
+                    // 如果是暂停状态，使用Pause来切换状态恢复播放
+                    if (m_CurrentMediaState == libvlc_state_t.libvlc_Paused)
+                    {
+                        m_Player.Pause();
+                    }
+                    // 如果是停止或其他状态，需要重新开始播放
+                    else 
+                    {
+                        m_Player.UpdateUrl(m_Url);
+                    }
+                }
+            }
+            else if (!string.IsNullOrEmpty(m_Url))
+            {
+                // 如果播放器被释放了，重新创建
+                Debug.Log("360°播放器界面重新启用，重新创建播放器");
+                Play();
+            }
+            
+            // 如果正在监控状态，恢复监控
+            if (m_IsInitialized && m_MaxNoDataWaitTime > 0 && m_StatusMonitorCoroutine == null)
+            {
+                m_StatusMonitorCoroutine = StartCoroutine(MonitorPlayerStatus());
+            }
+        }
+        
+        private void OnDisable()
+        {
+            // 界面禁用时暂停播放，减少资源占用
+            if (m_Player != null && m_Player.IsPlaying())
+            {
+                Debug.Log("360°播放器界面被禁用，暂停播放");
+                m_Player.Pause();
+            }
+            
+            // 停止监控协程
+            if (m_StatusMonitorCoroutine != null)
+            {
+                StopCoroutine(m_StatusMonitorCoroutine);
+                m_StatusMonitorCoroutine = null;
+            }
+        }
 
         #endregion
 
@@ -190,27 +244,48 @@ namespace yan.libvlc
         {
             CheckEditorPlaying();
 
-            if (!gameObject.activeSelf)
-            {
-                Debug.LogWarning("游戏对象未激活，无法播放媒体");
-                return;
-            }
-
             if (string.IsNullOrEmpty(m_Url))
             {
-                Debug.LogError("媒体URL不能为空");
+                Debug.LogError("未设置URL，无法播放");
                 return;
             }
 
-            if (m_Player == null)
+            // 释放已有资源
+            CleanupResources();
+
+            // 确保材质和纹理已初始化
+            if (m_Texture == null)
             {
-                CreatePlayer();
+                Debug.Log($"创建360°视频纹理 ({m_Width}x{m_Height})");
+                m_Texture = new Texture2D(m_Width, m_Height, TextureFormat.RGB24, false);
+                m_Texture.wrapMode = TextureWrapMode.Repeat;
+                m_Texture.filterMode = FilterMode.Bilinear;
             }
 
-            if (!m_Player.IsPlaying())
+            if (m_Material != null)
             {
-                m_Player.Pause(); // 通过Pause方法切换播放状态
+                m_Material.mainTexture = m_Texture;
+                UpdateTextureScale();
             }
+
+            // 创建临时缓冲区（如果需要Y轴翻转）
+            if (m_FlipY && m_TempRowBuffer == null)
+            {
+                m_TempRowBuffer = new byte[m_Width * 3]; // RGB24格式，每像素3字节
+            }
+            
+            // 创建播放器并启动监控
+            CreatePlayer();
+            
+            // 设置初始化完成标志
+            m_IsInitialized = true;
+            
+            // 启动状态监控
+            if (m_StatusMonitorCoroutine != null)
+            {
+                StopCoroutine(m_StatusMonitorCoroutine);
+            }
+            m_StatusMonitorCoroutine = StartCoroutine(MonitorPlayerStatus());
         }
 
         /// <summary>
@@ -594,6 +669,41 @@ namespace yan.libvlc
                 
                 yield return m_StatusCheckWait;
             }
+        }
+        
+        /// <summary>
+        /// 综合监控播放器状态，包括状态变化和视频数据流
+        /// </summary>
+        private IEnumerator MonitorPlayerStatus()
+        {
+            // 如果播放器未初始化，等待初始化
+            if (!m_IsInitialized)
+            {
+                yield return new WaitForSeconds(0.5f);
+            }
+            
+            // 同时启动状态监控和数据监控
+            Coroutine stateMonitor = StartCoroutine(SupervisePlayerState());
+            Coroutine dataMonitor = null;
+            
+            // 只有设置了最大无数据等待时间才启动数据监控
+            if (m_MaxNoDataWaitTime > 0)
+            {
+                dataMonitor = StartCoroutine(MonitorVideoDataStream());
+            }
+            
+            // 持续运行，直到组件被禁用或销毁
+            while (m_Player != null && m_IsInitialized)
+            {
+                yield return m_StatusCheckWait;
+            }
+            
+            // 清理监控协程
+            if (stateMonitor != null)
+                StopCoroutine(stateMonitor);
+                
+            if (dataMonitor != null)
+                StopCoroutine(dataMonitor);
         }
         
         /// <summary>

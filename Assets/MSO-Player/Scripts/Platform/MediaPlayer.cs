@@ -101,6 +101,41 @@ namespace yan.libvlc
         {
             CleanupResources();
         }
+        
+        private void OnEnable()
+        {
+            // 界面启用时恢复播放
+            if (m_Player != null)
+            {
+                if (!m_Player.IsPlaying())
+                {
+                    // 如果是暂停状态，使用Pause切换回播放状态
+                    if (m_CurrentMediaState == libvlc_state_t.libvlc_Paused)
+                    {
+                        m_Player.Pause(); // 切换播放状态
+                    }
+                    // 如果是停止或其他状态，通过重新设置Url开始播放
+                    else
+                    {
+                        m_Player.UpdateUrl(m_Url);
+                    }
+                }
+            }
+            else if (!string.IsNullOrEmpty(m_Url))
+            {
+                // 如果播放器被释放了，重新创建
+                Play();
+            }
+        }
+        
+        private void OnDisable()
+        {
+            // 界面禁用时暂停播放，减少资源占用
+            if (m_Player != null && m_Player.IsPlaying())
+            {
+                m_Player.Pause();
+            }
+        }
 
         #endregion
 
@@ -342,50 +377,29 @@ namespace yan.libvlc
         /// </summary>
         private void CleanupResources()
         {
-            try
+            // 停止所有协程
+            StopAllCoroutines();
+            
+            // 释放VLC播放器资源
+            if (m_Player != null)
             {
-                StopAllCoroutines();
-
-                if (m_Player != null)
-                {
-                    try
-                    {
-                        m_Player.Stop();
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.LogError($"停止播放时发生错误: {ex.Message}");
-                    }
-
-                    try
-                    {
-                        m_Player.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.LogError($"释放播放器资源时发生错误: {ex.Message}");
-                    }
-
-                    m_Player = null;
-                }
-
-                if (m_Texture != null)
-                {
-                    try
-                    {
-                        Destroy(m_Texture);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.LogError($"销毁纹理时发生错误: {ex.Message}");
-                    }
-
-                    m_Texture = null;
-                }
+                m_Player.Dispose();
+                m_Player = null;
             }
-            catch (Exception ex)
+            
+            // 是否释放纹理资源（在OnDisable中不释放，只在OnDestroy中释放）
+            if (!gameObject.activeInHierarchy && m_Texture != null)
             {
-                Debug.LogError($"清理资源时发生错误: {ex.Message}");
+                Destroy(m_Texture);
+                m_Texture = null;
+                
+                // 清除RawImage的引用
+                if (m_RawImage != null)
+                {
+                    m_RawImage.texture = null;
+                }
+                
+                Debug.Log("已释放纹理资源");
             }
         }
 

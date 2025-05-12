@@ -113,6 +113,57 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    private void OnEnable()
+    {
+        // 当控制器启用时，恢复进度更新
+        if (progressUpdateCoroutine == null)
+        {
+            progressUpdateCoroutine = StartCoroutine(UpdateProgressCoroutine());
+        }
+        
+        // 如果有有效的媒体URL，确保播放
+        if (!string.IsNullOrEmpty(currentMediaUrl) && mediaPlayer != null)
+        {
+            // 如果不在播放状态，启动播放
+            if (!mediaPlayer.IsPlaying)
+            {
+                Debug.Log("播放器控制器重新启用，自动开始播放");
+                
+                // 根据不同状态选择不同的恢复方法
+                if (mediaPlayer.CurrentMediaState == libvlc_state_t.libvlc_Paused)
+                {
+                    // 如果是暂停状态，使用Play恢复播放
+                    mediaPlayer.Play();
+                }
+                else
+                {
+                    // 其他状态（停止、结束等），重新加载媒体
+                    SetMediaUrl(currentMediaUrl, true);
+                }
+            }
+        }
+        
+        // 更新UI状态
+        UpdatePlayPauseButton();
+    }
+    
+    private void OnDisable()
+    {
+        // 当控制器禁用时，停止进度更新，释放资源
+        if (progressUpdateCoroutine != null)
+        {
+            StopCoroutine(progressUpdateCoroutine);
+            progressUpdateCoroutine = null;
+        }
+        
+        // 如果正在播放，暂停播放
+        if (mediaPlayer != null && mediaPlayer.IsPlaying)
+        {
+            Debug.Log("播放器控制器被禁用，暂停播放");
+            mediaPlayer.Pause();
+        }
+    }
+
     #endregion
 
     #region 公共方法
