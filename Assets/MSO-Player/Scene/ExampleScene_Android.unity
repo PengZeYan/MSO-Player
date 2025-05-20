@@ -550,7 +550,7 @@ MonoBehaviour:
     x: 0
     y: 0
     width: 1
-    height: -1
+    height: 1
 --- !u!114 &7199012138687037151
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -568,7 +568,14 @@ MonoBehaviour:
   m_Height: 720
   m_AutoscaleRawImage: 1
   m_Mute: 1
-  m_PlayOnStart: 1
+  m_PlayOnAwake: 0
+  m_UseObjectPool: 1
+  OnPlayEvent:
+    m_PersistentCalls:
+      m_Calls: []
+  OnStopEvent:
+    m_PersistentCalls:
+      m_Calls: []
   m_ReduceResolutionOnLowMemory: 0
   m_UseHardwareAcceleration: 1
   m_NetworkCachingTime: 3000

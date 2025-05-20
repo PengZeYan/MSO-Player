@@ -52,9 +52,9 @@ namespace yan.libvlc
             CleanupDuplicateDlls(targetPath);
 
             // 开始复制文件
-            Debug.Log($"正在复制LibVLC插件到: {targetPath}");
+            //Debug.Log($"正在复制LibVLC插件到: {targetPath}");
             CopyDirectory(sourcePath, targetPath);
-            Debug.Log("LibVLC插件复制完成");
+            //Debug.Log("LibVLC插件复制完成");
         }
 
         /// <summary>
@@ -74,13 +74,13 @@ namespace yan.libvlc
 
             foreach (var group in dllFiles)
             {
-                Debug.Log($"发现重复DLL: {group.Key}, 实例数: {group.Count()}");
+                //Debug.Log($"发现重复DLL: {group.Key}, 实例数: {group.Count()}");
                 
                 // 保留最新的一个文件，删除其他副本
                 var orderedFiles = group.OrderByDescending(file => file.LastWriteTime).ToList();
                 for (int i = 1; i < orderedFiles.Count; i++)
                 {
-                    Debug.Log($"删除重复DLL: {orderedFiles[i].FullName}");
+                    //Debug.Log($"删除重复DLL: {orderedFiles[i].FullName}");
                     try
                     {
                         File.Delete(orderedFiles[i].FullName);

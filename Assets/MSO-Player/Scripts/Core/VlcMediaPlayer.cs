@@ -343,7 +343,7 @@ namespace yan.libvlc.Core
 
             // 预解析媒体以提前缓冲
             LibVLCWrapper.libvlc_media_parse_async(newMedia);
-                
+
             // 等待预解析完成，然后快速切换
             System.Threading.ThreadPool.QueueUserWorkItem(_ => {
                 // 等待解析完成，最长等待500ms
@@ -501,7 +501,7 @@ namespace yan.libvlc.Core
                     argsList.Add("--clock-synchro=0");       // 禁用时钟同步
                     args = argsList.ToArray();
                     
-                    Debug.Log($"检测到网络流，已添加额外的缓冲参数: {string.Join(", ", argsList)}");
+                    //Debug.Log($"检测到网络流，已添加额外的缓冲参数: {string.Join(", ", argsList)}");
                 }
             }
 

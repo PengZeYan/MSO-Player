@@ -402,7 +402,7 @@ namespace yan.libvlc
         public string GetResolutionDescription()
         {
             if (!GetVideoResolution(out uint width, out uint height))
-                return "未知";
+                return "";
             
             if (height >= 2160)
                 return "4K";

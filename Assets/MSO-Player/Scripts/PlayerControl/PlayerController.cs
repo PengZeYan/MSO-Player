@@ -820,7 +820,6 @@ public class PlayerController : MonoBehaviour
             
             // 显示分辨率信息
             resolutionText.text = resolution;
-            //Debug.Log($"视频分辨率: {resolution}");
         }
     }
 

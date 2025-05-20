@@ -3029,7 +3029,7 @@ MonoBehaviour:
     x: 0
     y: 0
     width: 1
-    height: -1
+    height: 1
 --- !u!114 &7199012138687037151
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3048,6 +3048,13 @@ MonoBehaviour:
   m_AutoscaleRawImage: 0
   m_Mute: 1
   m_PlayOnAwake: 0
+  m_UseObjectPool: 1
+  OnPlayEvent:
+    m_PersistentCalls:
+      m_Calls: []
+  OnStopEvent:
+    m_PersistentCalls:
+      m_Calls: []
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
