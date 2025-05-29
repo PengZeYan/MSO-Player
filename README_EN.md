@@ -90,6 +90,7 @@ When using on Android platform, ensure to add the following permissions in Andro
 <uses-permission android:name="android.permission.INTERNET" />
 <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
 ```
+If the plugins out problem, download the plugins to replace: http://222.222.65.164:8852/s/yJ1c0
 
 ## 📚 Key Components
 

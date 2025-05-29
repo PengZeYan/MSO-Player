@@ -89,6 +89,7 @@ player.SetUrl("https://example.com/panorama.mp4", true);
 <uses-permission android:name="android.permission.INTERNET" />
 <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
 ```
+如果plugins出问题，下载plugins进行替换：http://222.222.65.164:8852/s/yJ1c0
 
 ## 📚 关键组件
 
