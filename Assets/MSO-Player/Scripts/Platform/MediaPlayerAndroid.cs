@@ -35,8 +35,9 @@ namespace yan.libvlc
 
         #region Unity生命周期方法
 
-        protected virtual void Awake()
+        protected override void Awake()
         {
+            base.Awake();
             // 检查是否在Android平台上运行
             m_IsAndroid = PlatformManager.IsAndroid;
             

@@ -28,7 +28,7 @@ namespace yan.libvlc
             if (report.summary.platform != BuildTarget.StandaloneWindows && 
                 report.summary.platform != BuildTarget.StandaloneWindows64)
             {
-                Debug.Log("LibVLC插件复制仅支持Windows平台，当前构建平台跳过");
+                //Debug.Log("LibVLC插件复制仅支持Windows平台，当前构建平台跳过");
                 return;
             }
 

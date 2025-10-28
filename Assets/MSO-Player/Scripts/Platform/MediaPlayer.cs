@@ -113,7 +113,7 @@ namespace yan.libvlc
 
         #region Unity生命周期方法
 
-        private void Awake()
+        protected virtual void Awake()
         {
             // 初始化事件对象
             if (OnPlayEvent == null)
