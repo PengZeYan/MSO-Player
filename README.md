@@ -60,6 +60,7 @@ MSO-Player是一个为Unity开发的强大视频播放解决方案，基于libVL
    - Android: Plugins/Android/
 3. 由于github上传大于100M文件有限制
    如果plugins出问题，下载plugins进行替换：http://222.222.65.164:8852/s/yJ1c0
+   通过网盘分享的文件：Plugins.rar：链接: https://pan.baidu.com/s/1TwWYrMBm94K6IrFYEc-7CA?pwd=bgca 提取码: bgca
    如果网盘打不开，给我发邮箱回信我给你发送一份
 
 ### 基本使用 - 普通视频
