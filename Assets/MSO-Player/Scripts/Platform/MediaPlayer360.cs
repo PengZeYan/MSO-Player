@@ -29,7 +29,7 @@ namespace yan.libvlc
         [SerializeField, Tooltip("启动时自动播放")]
         private bool m_PlayOnStart = true;
 
-        [SerializeField, Tooltip("是否反转Y轴（上下翻转图像）)]
+        [SerializeField, Tooltip("是否反转Y轴（上下翻转图像）")]
         private bool m_FlipY = true;
         
         [SerializeField, Tooltip("使用Shader翻转而非CPU翻转（性能更好）")]
