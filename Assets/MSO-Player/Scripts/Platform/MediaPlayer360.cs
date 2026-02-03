@@ -29,8 +29,11 @@ namespace yan.libvlc
         [SerializeField, Tooltip("启动时自动播放")]
         private bool m_PlayOnStart = true;
 
-        [SerializeField, Tooltip("是否反转Y轴（上下翻转图像）")]
+        [SerializeField, Tooltip("是否反转Y轴（上下翻转图像）)]
         private bool m_FlipY = true;
+        
+        [SerializeField, Tooltip("使用Shader翻转而非CPU翻转（性能更好）")]
+        private bool m_UseShaderFlip = true;
         
         [SerializeField, Tooltip("无视频数据最大等待时间(秒)，超过此时间将自动尝试恢复播放，0表示禁用")]
         private float m_MaxNoDataWaitTime = 5.0f;
@@ -102,7 +105,6 @@ namespace yan.libvlc
 
         private void Awake()
         {
-            // 预先创建并缓存WaitForSeconds对象，避免每次都创建新的
             m_StatusCheckWait = new WaitForSeconds(m_StatusCheckInterval);
         }
 
@@ -349,7 +351,6 @@ namespace yan.libvlc
                 }
                 else
                 {
-                    // 如果找不到全景着色器，使用标准着色器
                     m_Material = new Material(Shader.Find("Standard"));
                     m_Material.name = "FallbackMaterial";
                     Debug.LogWarning("未找到全景着色器，已创建标准材质。为获得最佳效果，请手动设置Skybox/Panoramic材质");
@@ -388,13 +389,12 @@ namespace yan.libvlc
             }
             
             m_IsInitialized = true;
-            StartCoroutine(SupervisePlayerState());
             
-            // 启动视频数据监控
-            if (m_MaxNoDataWaitTime > 0)
+            if (m_StatusMonitorCoroutine != null)
             {
-                StartCoroutine(MonitorVideoDataStream());
+                StopCoroutine(m_StatusMonitorCoroutine);
             }
+            m_StatusMonitorCoroutine = StartCoroutine(MonitorPlayerStatus());
         }
 
         /// <summary>
@@ -421,7 +421,6 @@ namespace yan.libvlc
                 }
                 else
                 {
-                    // 需要创建新纹理时，先释放旧的
                     if (m_Texture != null)
                     {
                         Destroy(m_Texture);
@@ -456,9 +455,19 @@ namespace yan.libvlc
         {
             if (m_Material != null)
             {
-                // 使用默认纹理设置
-                m_Material.mainTextureScale = new Vector2(1, 1);
-                m_Material.mainTextureOffset = new Vector2(0, 0);
+                // 使用Shader翻转时设置纹理缩放
+                if (m_FlipY && m_UseShaderFlip)
+                {
+                    // 通过纹理缩放实现Y轴翻转（GPU处理，零CPU开销）
+                    m_Material.mainTextureScale = new Vector2(1, -1);
+                    m_Material.mainTextureOffset = new Vector2(0, 1);
+                }
+                else
+                {
+                    // 使用默认纹理设置
+                    m_Material.mainTextureScale = new Vector2(1, 1);
+                    m_Material.mainTextureOffset = new Vector2(0, 0);
+                }
                 
                 // 调整材质的属性以优化渲染
                 if (m_Material.HasProperty("_Mapping"))
@@ -503,11 +512,13 @@ namespace yan.libvlc
                         return;
                     }
                     
-                    // 仅当需要时才反转Y轴
-                    if (m_FlipY)
+                    // 根据配置选择翻转方式
+                    if (m_FlipY && !m_UseShaderFlip)
                     {
+                        // CPU翻转（兼容模式）
                         FlipTextureDataVertically(imageData, m_Width, m_Height);
                     }
+                    // 如果使用Shader翻转，则不需要CPU处理
                     
                     try
                     {
@@ -672,7 +683,7 @@ namespace yan.libvlc
         }
         
         /// <summary>
-        /// 综合监控播放器状态，包括状态变化和视频数据流
+        /// 综合监控播放器状态，合并多个协程减少开销
         /// </summary>
         private IEnumerator MonitorPlayerStatus()
         {
@@ -682,28 +693,82 @@ namespace yan.libvlc
                 yield return new WaitForSeconds(0.5f);
             }
             
-            // 同时启动状态监控和数据监控
-            Coroutine stateMonitor = StartCoroutine(SupervisePlayerState());
-            Coroutine dataMonitor = null;
+            // 使用单一协程，降低检查频率到1秒
+            WaitForSeconds wait = new WaitForSeconds(1.0f);
             
-            // 只有设置了最大无数据等待时间才启动数据监控
-            if (m_MaxNoDataWaitTime > 0)
-            {
-                dataMonitor = StartCoroutine(MonitorVideoDataStream());
-            }
+            libvlc_state_t previousState = libvlc_state_t.libvlc_NothingSpecial;
+            float lastDataCheckTime = Time.realtimeSinceStartup;
             
-            // 持续运行，直到组件被禁用或销毁
             while (m_Player != null && m_IsInitialized)
             {
-                yield return m_StatusCheckWait;
-            }
-            
-            // 清理监控协程
-            if (stateMonitor != null)
-                StopCoroutine(stateMonitor);
+                try
+                {
+                    // 1. 状态监控
+                    libvlc_state_t currentState = m_Player.State;
+                    
+                    if (currentState != previousState)
+                    {
+                        m_CurrentMediaState = currentState;
+                        OnMediaPlayerStateEvent?.Invoke(StateToString(currentState));
+                        
+                        // 检测错误状态并触发错误事件
+                        if (currentState == libvlc_state_t.libvlc_Error)
+                        {
+                            string errorMessage = $"播放全景视频 {m_Url} 时发生错误";
+                            
+                            // 获取VLC的具体错误信息
+                            string vlcError = m_Player.GetErrorMessage();
+                            if (!string.IsNullOrEmpty(vlcError))
+                            {
+                                errorMessage += $": {vlcError}";
+                            }
+                            
+                            Debug.LogError(errorMessage);
+                            OnMediaPlayerErrorEvent?.Invoke(errorMessage);
+                            
+                            // 尝试自动恢复播放
+                            if (m_FailedRecoveryAttempts < MAX_RECOVERY_ATTEMPTS)
+                            {
+                                Debug.Log($"尝试恢复播放 (尝试 {m_FailedRecoveryAttempts+1}/{MAX_RECOVERY_ATTEMPTS})");
+                                StartCoroutine(AttemptRecovery());
+                            }
+                            else
+                            {
+                                Debug.LogWarning($"已达到最大恢复尝试次数 ({MAX_RECOVERY_ATTEMPTS})，不再自动恢复");
+                            }
+                        }
+                        else if (currentState == libvlc_state_t.libvlc_Playing)
+                        {
+                            // 播放成功时重置恢复计数
+                            m_FailedRecoveryAttempts = 0;
+                        }
+                        
+                        previousState = currentState;
+                    }
+                    
+                    // 2. 视频数据流监控（如果启用）
+                    if (m_MaxNoDataWaitTime > 0 && Time.realtimeSinceStartup - lastDataCheckTime >= 2.0f)
+                    {
+                        lastDataCheckTime = Time.realtimeSinceStartup;
+                        
+                        if (m_Player.IsPlaying() && m_Player.NoImageDataReceivedTime > m_MaxNoDataWaitTime)
+                        {
+                            Debug.LogWarning($"已有 {m_Player.NoImageDataReceivedTime:F1} 秒没有接收到视频数据，尝试恢复播放");
+                            
+                            if (m_FailedRecoveryAttempts < MAX_RECOVERY_ATTEMPTS)
+                            {
+                                StartCoroutine(AttemptRecovery());
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"监控播放器状态时发生异常: {ex.Message}");
+                }
                 
-            if (dataMonitor != null)
-                StopCoroutine(dataMonitor);
+                yield return wait;
+            }
         }
         
         /// <summary>

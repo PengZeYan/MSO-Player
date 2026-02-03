@@ -24,26 +24,25 @@ namespace yan.libvlc
         [SerializeField, Tooltip("监视器位置")]
         private MediaPlayerPoolMonitor.MonitorPosition monitorPosition = MediaPlayerPoolMonitor.MonitorPosition.TopRight;
         
+        [SerializeField, Tooltip("是否启用自动预热（建议使用MediaPlayerPreloader代替）")]
+        private bool enableAutoPrewarm = false;
+        
         private static bool hasInitialized = false;
         
         private void Awake()
         {
-            // 确保只初始化一次
             if (hasInitialized)
             {
                 Destroy(this);
                 return;
             }
             
-            // 在加载新场景时不销毁
             DontDestroyOnLoad(gameObject);
             
-            // 标记为已初始化
             hasInitialized = true;
             
             if (initializeOnStart)
             {
-                // 初始化对象池（访问单例实例即可初始化）
                 _ = MediaPlayerPool.Instance;
                 
                 if (addMonitor)
@@ -51,7 +50,6 @@ namespace yan.libvlc
                     // 添加监视器
                     var monitor = gameObject.AddComponent<MediaPlayerPoolMonitor>();
                     
-                    // 设置监视器属性
                     var prop = new MonitorProperties 
                     { 
                         showMonitor = monitorVisible,
@@ -61,6 +59,9 @@ namespace yan.libvlc
                     ConfigureMonitor(monitor, prop);
                 }
             }
+            
+            // 注意：自动预热已禁用，请使用MediaPlayerPreloader组件进行预热
+            // 这样可以在登录界面等场景提前预热，避免首次使用时卡顿
         }
         
         /// <summary>

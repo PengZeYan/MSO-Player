@@ -24,6 +24,11 @@ namespace yan.libvlc
         /// </summary>
         private IntPtr _mediaPtr;
 
+        // 优化：缓存反射FieldInfo对象
+        private static System.Reflection.FieldInfo _mediaPlayerFieldInfo;
+        private static System.Reflection.FieldInfo _mediaFieldInfo;
+        private static readonly object _reflectionLock = new object();
+
         /// <summary>
         /// 构造函数
         /// </summary>
@@ -32,7 +37,8 @@ namespace yan.libvlc
         {
             _player = player ?? throw new ArgumentNullException(nameof(player));
             
-            // 尝试获取内部指针
+            InitializeReflectionCache();
+            
             _mediaPlayerPtr = GetMediaPlayerPtr();
             _mediaPtr = GetMediaPtr();
         }
@@ -105,7 +111,6 @@ namespace yan.libvlc
                 // 首先尝试使用媒体播放器获取长度
                 long duration = LibVLCWrapper.libvlc_media_player_get_length(_mediaPlayerPtr);
                 
-                // 如果失败，尝试使用媒体对象获取
                 if (duration <= 0 && _mediaPtr != IntPtr.Zero)
                 {
                     duration = LibVLCWrapper.libvlc_media_get_duration(_mediaPtr);
@@ -160,7 +165,6 @@ namespace yan.libvlc
 
             try
             {
-                // 确保位置在有效范围内
                 position = Mathf.Clamp01(position);
                 
                 // 设置播放位置
@@ -214,10 +218,8 @@ namespace yan.libvlc
 
             try
             {
-                // 确保音量在有效范围内
                 volume = Mathf.Clamp(volume, 0, 100);
                 
-                // 设置音量
                 int result = LibVLCWrapper.libvlc_audio_set_volume(_mediaPlayerPtr, volume);
                 return result == 0;
             }
@@ -324,7 +326,36 @@ namespace yan.libvlc
         }
 
         /// <summary>
-        /// 获取媒体播放器指针
+        /// 优化：初始化反射缓存
+        /// </summary>
+        private static void InitializeReflectionCache()
+        {
+            if (_mediaPlayerFieldInfo != null && _mediaFieldInfo != null)
+                return;
+
+            lock (_reflectionLock)
+            {
+                // 双重检查锁定
+                if (_mediaPlayerFieldInfo != null && _mediaFieldInfo != null)
+                    return;
+
+                try
+                {
+                    var playerType = typeof(VlcMediaPlayer);
+                    _mediaPlayerFieldInfo = playerType.GetField("_mediaPlayer",
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    _mediaFieldInfo = playerType.GetField("_media",
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"初始化反射缓存失败: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 获取媒体播放器指针（优化：使用缓存的FieldInfo）
         /// </summary>
         private IntPtr GetMediaPlayerPtr()
         {
@@ -332,9 +363,11 @@ namespace yan.libvlc
 
             try
             {
-                System.Reflection.FieldInfo fieldInfo = _player.GetType().GetField("_mediaPlayer", 
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                return fieldInfo?.GetValue(_player) as IntPtr? ?? IntPtr.Zero;
+                if (_mediaPlayerFieldInfo == null)
+                    InitializeReflectionCache();
+
+                var value = _mediaPlayerFieldInfo?.GetValue(_player);
+                return value is IntPtr ptr ? ptr : IntPtr.Zero;
             }
             catch (Exception ex)
             {
@@ -352,9 +385,11 @@ namespace yan.libvlc
 
             try
             {
-                System.Reflection.FieldInfo fieldInfo = _player.GetType().GetField("_media", 
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                return fieldInfo?.GetValue(_player) as IntPtr? ?? IntPtr.Zero;
+                if (_mediaFieldInfo == null)
+                    InitializeReflectionCache();
+
+                var value = _mediaFieldInfo?.GetValue(_player);
+                return value is IntPtr ptr ? ptr : IntPtr.Zero;
             }
             catch (Exception ex)
             {

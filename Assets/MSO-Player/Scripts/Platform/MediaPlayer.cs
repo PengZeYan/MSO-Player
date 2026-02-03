@@ -113,7 +113,7 @@ namespace yan.libvlc
 
         #region Unity生命周期方法
 
-        protected virtual void Awake()
+        protected virtual void OnAwake()
         {
             // 初始化事件对象
             if (OnPlayEvent == null)
@@ -133,6 +133,11 @@ namespace yan.libvlc
             if (m_PlayOnAwake)
                 Play();
         }
+        
+        private void Awake()
+        {
+            OnAwake();
+        }
 
         private void Update()
         {
@@ -141,7 +146,6 @@ namespace yan.libvlc
 
         private void OnDestroy()
         {
-            LogInfo($"OnDestroy");
             m_IsDestroyed = true;
             CleanupResources();
         }
@@ -229,7 +233,6 @@ namespace yan.libvlc
             }
 
             m_Url = url;
-
             if (autoPlay)
             {
                 CheckEditorPlaying();

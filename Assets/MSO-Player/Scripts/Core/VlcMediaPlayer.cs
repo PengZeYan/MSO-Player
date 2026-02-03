@@ -120,7 +120,10 @@ namespace yan.libvlc.Core
         private static DisplayCB _displayCallback;
         private GCHandle _gcHandle;
 
+        // 优化1：双缓冲机制，避免每帧分配新数组
         private byte[] _currentImage;
+        private byte[] _backBuffer;
+        private readonly object _bufferLock = new object();
         private bool _update = false;
         private bool _mute = true;
         private int _width = 480;
@@ -130,7 +133,8 @@ namespace yan.libvlc.Core
         // 用于静态回调方法访问实例的静态字典
         private static Dictionary<IntPtr, VlcMediaPlayer> _playerInstances = new Dictionary<IntPtr, VlcMediaPlayer>();
         
-        private const string DEFAULT_ARGS = "--ignore-config;--no-xlib;--no-video-title-show;--no-osd";
+        // 优化：优化默认参数
+        private const string DEFAULT_ARGS = "--ignore-config;--no-xlib;--no-video-title-show;--no-osd;--clock-jitter=0;--avcodec-threads=4";
         private libvlc_video_track_t? _videoTrack = null;
         private IntPtr _trackToRelease;
         private int _tracks;
@@ -216,6 +220,13 @@ namespace yan.libvlc.Core
             _gcHandle = GCHandle.Alloc(this);
             _lastImageReceivedTime = 0;
 
+            // 优化：预分配缓冲区
+            int bufferSize = _width * _channels * _height;
+            _currentImage = new byte[bufferSize];
+            _backBuffer = new byte[bufferSize];
+
+            // 注意：LibVLC初始化必须在主线程执行，不能异步
+            // 通过MediaPlayerPreloader在登录界面预热来避免首次使用时的卡顿
             InitializeLibVLC(mediaUrl, customArgs);
             SetupCallbacks();
             StartPlayback();
@@ -243,8 +254,12 @@ namespace yan.libvlc.Core
             
             if (_update)
             {
-                currentImage = _currentImage;
-                _update = false;
+                // 优化：使用锁保护缓冲区交换
+                lock (_bufferLock)
+                {
+                    currentImage = _currentImage;
+                    _update = false;
+                }
                 return true;
             }
             return false;
@@ -301,6 +316,12 @@ namespace yan.libvlc.Core
             LibVLCWrapper.libvlc_media_player_set_media(_mediaPlayer, newMedia);
             LibVLCWrapper.libvlc_media_release(newMedia);
             LibVLCWrapper.libvlc_media_player_play(_mediaPlayer);
+            
+            // 修复：重新应用静音设置
+            if (_mute)
+            {
+                LibVLCWrapper.libvlc_audio_set_mute(_mediaPlayer, 1);
+            }
         }
 
         /// <summary>
@@ -385,6 +406,11 @@ namespace yan.libvlc.Core
                         LibVLCWrapper.libvlc_media_player_set_media(_mediaPlayer, newMedia);
                         LibVLCWrapper.libvlc_media_player_play(_mediaPlayer);
                         
+                        if (_mute)
+                        {
+                            LibVLCWrapper.libvlc_audio_set_mute(_mediaPlayer, 1);
+                        }
+                        
                         // 如果有最后一帧数据，在新视频加载期间继续显示
                         if (lastImageData != null)
                         {
@@ -411,6 +437,94 @@ namespace yan.libvlc.Core
         {
             return _mediaPlayer != IntPtr.Zero && 
                    LibVLCWrapper.libvlc_media_player_is_playing(_mediaPlayer);
+        }
+
+        /// <summary>
+        /// 设置静音状态
+        /// </summary>
+        /// <param name="mute">是否静音</param>
+        /// <returns>操作是否成功</returns>
+        public bool SetMute(bool mute)
+        {
+            _mute = mute;
+            
+            if (_mediaPlayer == IntPtr.Zero)
+                return false;
+            
+            try
+            {
+                int result = LibVLCWrapper.libvlc_audio_set_mute(_mediaPlayer, mute ? 1 : 0);
+                return result == 0;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"设置静音状态失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 获取静音状态
+        /// </summary>
+        /// <returns>是否静音</returns>
+        public bool IsMuted()
+        {
+            if (_mediaPlayer == IntPtr.Zero)
+                return _mute;
+            
+            try
+            {
+                int mute = LibVLCWrapper.libvlc_audio_get_mute(_mediaPlayer);
+                return mute == 1;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"获取静音状态失败: {ex.Message}");
+                return _mute;
+            }
+        }
+
+        /// <summary>
+        /// 设置音量（0-100）
+        /// </summary>
+        /// <param name="volume">音量值</param>
+        /// <returns>操作是否成功</returns>
+        public bool SetVolume(int volume)
+        {
+            if (_mediaPlayer == IntPtr.Zero)
+                return false;
+            
+            try
+            {
+                volume = Mathf.Clamp(volume, 0, 100);
+                int result = LibVLCWrapper.libvlc_audio_set_volume(_mediaPlayer, volume);
+                return result == 0;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"设置音量失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 获取音量（0-100）
+        /// </summary>
+        /// <returns>当前音量</returns>
+        public int GetVolume()
+        {
+            if (_mediaPlayer == IntPtr.Zero)
+                return 0;
+            
+            try
+            {
+                return LibVLCWrapper.libvlc_audio_get_volume(_mediaPlayer);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"获取音量失败: {ex.Message}");
+                return 0;
+            }
         }
 
         /// <summary>
@@ -493,15 +607,22 @@ namespace yan.libvlc.Core
 
                 if (isNetworkStream)
                 {
-                    // 自定义网络缓冲参数列表
+                    // 优化：降低网络缓冲，减少延迟
                     List<string> argsList = new List<string>(args);
-                    argsList.Add("--network-caching=100");  // 增加网络缓存
-                    argsList.Add("--live-caching=100");     // 直播流缓存
-                    argsList.Add("--clock-jitter=0");        // 减少时钟抖动
+                    argsList.Add("--network-caching=1000");  // 从3000降低到1000ms
+                    argsList.Add("--live-caching=500");      // 直播流低延迟
                     argsList.Add("--clock-synchro=0");       // 禁用时钟同步
+                    argsList.Add("--file-caching=300");      // 降低文件缓存
                     args = argsList.ToArray();
                     
                     //Debug.Log($"检测到网络流，已添加额外的缓冲参数: {string.Join(", ", argsList)}");
+                }
+                else
+                {
+                    // 优化：本地文件优化参数
+                    List<string> argsList = new List<string>(args);
+                    argsList.Add("--file-caching=300");      // 降低本地文件缓冲
+                    args = argsList.ToArray();
                 }
             }
 
@@ -521,10 +642,10 @@ namespace yan.libvlc.Core
                 return;
             }
             
-           
+            // 优化6：对网络流添加额外选项
             if (isNetworkStream && (customArgs == null || customArgs.Length == 0))
             {
-                LibVLCWrapper.libvlc_media_add_option(_media, ":network-caching=3000");
+                LibVLCWrapper.libvlc_media_add_option(_media, ":network-caching=1000");
                 LibVLCWrapper.libvlc_media_add_option(_media, ":clock-jitter=0");
             }
 
@@ -572,6 +693,21 @@ namespace yan.libvlc.Core
         private void StartPlayback()
         {
             LibVLCWrapper.libvlc_media_player_play(_mediaPlayer);
+            
+            if (_mute)
+            {
+                LibVLCWrapper.libvlc_audio_set_mute(_mediaPlayer, 1);
+            }
+            else
+            {
+                // 确保音量不为0
+                int currentVolume = LibVLCWrapper.libvlc_audio_get_volume(_mediaPlayer);
+                if (currentVolume <= 0)
+                {
+                    LibVLCWrapper.libvlc_audio_set_volume(_mediaPlayer, 100); // 设置默认音量100%
+                }
+            }
+            
             _isRunning = true;
             
             Thread trackReaderThread = new Thread(TrackReaderThread);
@@ -584,13 +720,14 @@ namespace yan.libvlc.Core
         /// </summary>
         private void TrackReaderThread()
         {
-            const int MAX_TRACK_ATTEMPTS = 60; // 增加尝试次数
+            // 优化：减少最大尝试次数，加快失败响应
+            const int MAX_TRACK_ATTEMPTS = 20; // 从30降低到20
             int trackGetAttempts = 0;
             
             try 
             {
-                // 先等待播放开始
-                Thread.Sleep(1000); // 等待1秒，让播放器有足够时间初始化
+                // 优化：减少初始等待时间，加快首帧显示
+                Thread.Sleep(300); // 从1000ms降低到300ms
                 
                 while (_isRunning && trackGetAttempts < MAX_TRACK_ATTEMPTS && !_cancel)
                 {
@@ -598,6 +735,8 @@ namespace yan.libvlc.Core
                     {
                         // 检查媒体是否开始播放
                         libvlc_state_t state = State;
+                        
+                        // 优化10：快速失败机制
                         if (state == libvlc_state_t.libvlc_Error)
                         {
                             Debug.LogError($"媒体播放出错，无法获取轨道信息");
@@ -619,6 +758,11 @@ namespace yan.libvlc.Core
                                 if (_width <= 0) _width = 1280;
                                 if (_height <= 0) _height = 720;
                                 
+                                // 优化：重新分配缓冲区
+                                int bufferSize = _width * _channels * _height;
+                                _currentImage = new byte[bufferSize];
+                                _backBuffer = new byte[bufferSize];
+                                
                                 LibVLCWrapper.libvlc_video_set_format(
                                     _mediaPlayer, 
                                     "RV24", 
@@ -632,14 +776,14 @@ namespace yan.libvlc.Core
 
                         trackGetAttempts++;
                         
-                        // 增加指数退避策略，随着尝试次数增加等待时间
-                        int sleepTime = Math.Min(500 + (100 * trackGetAttempts), 2000);
+                        // 优化：减少等待间隔，加快响应速度
+                        int sleepTime = Math.Min(50 + (30 * trackGetAttempts), 300); // 从100+50*n降低到50+30*n，上限从500降到300
                         Thread.Sleep(sleepTime);
                     }
                     catch (Exception ex)
                     {
                         Debug.LogError($"获取视频轨道时发生异常: {ex.Message}");
-                        Thread.Sleep(500);
+                        Thread.Sleep(200); // 从500ms降低到200ms
                         trackGetAttempts++;
                     }
                 }
@@ -902,9 +1046,19 @@ namespace yan.libvlc.Core
             {
                 if (!_update && picture != IntPtr.Zero)
                 {
-                    _currentImage = new byte[_width * _channels * _height];
-                    Marshal.Copy(picture, _currentImage, 0, _width * _channels * _height);
-                    _update = true;
+                    // 优化1：使用双缓冲，避免每帧分配新数组
+                    lock (_bufferLock)
+                    {
+                        // 将数据复制到后台缓冲区
+                        Marshal.Copy(picture, _backBuffer, 0, _backBuffer.Length);
+                        
+                        // 交换缓冲区
+                        var temp = _currentImage;
+                        _currentImage = _backBuffer;
+                        _backBuffer = temp;
+                        
+                        _update = true;
+                    }
                     
                     // 标记需要在主线程更新时间戳，而不是直接调用Time.time
                     _needToUpdateTimestamp = true;

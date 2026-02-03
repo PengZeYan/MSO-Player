@@ -35,9 +35,9 @@ namespace yan.libvlc
 
         #region Unity生命周期方法
 
-        protected override void Awake()
+        protected override void OnAwake()
         {
-            base.Awake();
+            base.OnAwake();
             // 检查是否在Android平台上运行
             m_IsAndroid = PlatformManager.IsAndroid;
             
@@ -117,9 +117,14 @@ namespace yan.libvlc
                 "--no-video-title-show",                    // 不显示视频标题
                 "--no-stats",                               // 禁用统计信息
                 "--no-snapshot-preview",                    // 禁用快照预览
-                $"--network-caching={m_NetworkCachingTime}", // 网络缓冲时间
-                "--android-display-chroma=RV24"             // 默认使用24位RGB格式与Unity兼容
+                "--android-display-chroma=RV24",            // 默认使用24位RGB格式与Unity兼容
+                "--clock-jitter=0",                         // 减少时钟抖动
+                "--avcodec-threads=4"                       // 多线程解码
             };
+            
+            // 根据网络流类型动态调整缓冲参数
+            // 这里使用较低的默认值，实际使用时会根据URL类型调整
+            parameters.Add("--network-caching=1000");       // 降低网络缓冲（从3000ms降到1000ms）
 
             // 根据设备内存和性能添加特定参数
             if (m_ReduceResolutionOnLowMemory && PlatformManager.IsLowEndDevice)
@@ -127,15 +132,24 @@ namespace yan.libvlc
                 parameters.Add("--avcodec-fast");           // 快速解码模式
                 parameters.Add("--avcodec-skiploopfilter=all"); // 跳过环路滤波以提高性能
                 parameters.Add("--sout-ffmpeg-strict=-2");  // 更宽松的格式兼容性
-                parameters.Add("--clock-jitter=0");         // 减少时钟抖动
                 parameters.Add("--clock-synchro=0");        // 禁用时钟同步
+                parameters.Add("--file-caching=300");       // 降低文件缓存
+            }
+            else
+            {
+                // 中高端设备使用更优参数
+                parameters.Add("--file-caching=300");       // 降低文件缓存
+                parameters.Add("--live-caching=500");       // 直播流低延迟
             }
 
             // 硬件加速选项
             if (m_UseHardwareAcceleration && PlatformManager.SupportsHardwareDecoding)
             {
-                parameters.Add("--codec=mediacodec,all");   // 使用MediaCodec硬件加速
-                Debug.Log("启用Android MediaCodec硬件解码");
+                // 使用MediaCodec低延迟模式
+                parameters.Add("--codec=mediacodec_ndk,mediacodec,all");   // 优先使用NDK版本
+                parameters.Add("--mediacodec-dr");          // 启用直接渲染
+                parameters.Add("--mediacodec-audio");       // 音频也使用硬件加速
+                Debug.Log("启用Android MediaCodec硬件解码（低延迟模式）");
             }
             else
             {
@@ -148,14 +162,18 @@ namespace yan.libvlc
             if (deviceModel.Contains("samsung"))
             {
                 // 三星设备特定优化
-                parameters.Add("--live-caching=1500");
-                
+                parameters.Add("--live-caching=800");
             }
             else if (deviceModel.Contains("xiaomi") || deviceModel.Contains("redmi"))
             {
                 // 小米设备特定优化
-                parameters.Add("--live-caching=1500");
+                parameters.Add("--live-caching=800");
                 parameters.Add("--audio-time-stretch");     // 音频时间拉伸，减少卡顿
+            }
+            else if (deviceModel.Contains("huawei") || deviceModel.Contains("honor"))
+            {
+                // 华为设备优化
+                parameters.Add("--live-caching=1000");
             }
 
             // 添加设备信息日志
