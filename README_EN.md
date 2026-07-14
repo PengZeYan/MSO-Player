@@ -58,7 +58,6 @@ MSO-Player is a powerful video playback solution for Unity, built on the libVLC 
 2. Ensure libVLC related DLL files are included in your project (located in the Plugins folder)
    - Windows: Plugins/x86_64/libvlc/
    - Android: Plugins/Android/
-3. If the plugins out problem, download the plugins to replace: http://222.222.65.164:8852/s/yJ1c0
 
 ### Basic Usage - Standard Video
 1. Create a UI object with a RawImage component
