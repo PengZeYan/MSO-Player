@@ -1,0 +1,37 @@
+name: Star History
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/star-history.yml
+  schedule:
+    - cron: "17 3 * * *"
+  watch:
+    types:
+      - started
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: star-history-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update-chart:
+    if: github.repository == 'PengZeYan/MSO-Player'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Generate star history chart
+        uses: narayann7/star-history-action@12543ab7352b91fb7c5eb0c4fbb39772baa0c168 # v1
+        with:
+          repos: ${{ github.repository }}
+          output-dir: Docs/Image/star-history
+          readme: README.md
+          type: Date
