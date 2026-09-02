@@ -190,4 +190,8 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 ## ⭐ Star History
 
 <!-- star-history:start -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="Docs/Image/star-history/star-history-dark.svg">
+  <img alt="Star history" src="Docs/Image/star-history/star-history-light.svg">
+</picture>
 <!-- star-history:end -->
