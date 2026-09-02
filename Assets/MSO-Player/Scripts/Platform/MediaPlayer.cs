@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.Serialization;
 using UnityEngine.UI;
 using yan.libvlc.Core;
 
@@ -16,21 +17,27 @@ namespace yan.libvlc
     {
         #region 序列化字段
 
+        [FormerlySerializedAs("url")]
         [SerializeField, Tooltip("媒体URL地址")]
         private string m_Url;
 
-        [SerializeField, Min(0), Tooltip("输出分辨率宽度，≤0进行自动缩放")]
+        [FormerlySerializedAs("width")]
+        [SerializeField, Min(1), Tooltip("输出分辨率宽度，必须大于0")]
         private int m_Width = 1280;
 
-        [SerializeField, Min(0), Tooltip("输出分辨率高度，≤0进行自动缩放")]
+        [FormerlySerializedAs("height")]
+        [SerializeField, Min(1), Tooltip("输出分辨率高度，必须大于0")]
         private int m_Height = 720;
 
+        [FormerlySerializedAs("autoscaleRawImage")]
         [SerializeField, Tooltip("是否自动调整rawImage的比例以适应宽高比，只在初始化的时候生效")]
         private bool m_AutoscaleRawImage = true;
 
+        [FormerlySerializedAs("mute")]
         [SerializeField, Tooltip("是否静音")]
         private bool m_Mute = true;
 
+        [FormerlySerializedAs("m_PlayOnStart")]
         [SerializeField, Tooltip("启动时自动播放")]
         private bool m_PlayOnAwake = false;
 
@@ -47,9 +54,10 @@ namespace yan.libvlc
         private libvlc_state_t m_CurrentMediaState;
         private libvlc_state_t m_PreviousMediaState; // 用于跟踪状态变化
         private Coroutine m_StateMonitorCoroutine; // 用于跟踪和停止状态监控协程
-        private bool m_IsInitialized = false; // 标记是否完成了初始化
         private bool m_IsReleased = false; // 标记是否已释放回对象池
         private bool m_IsDestroyed = false; // 标记组件是否已被销毁
+        private bool m_HasBeenDisabled = false;
+        private bool m_ShouldResumeOnEnable = false;
 
         #endregion
 
@@ -86,6 +94,8 @@ namespace yan.libvlc
         /// 获取当前媒体状态
         /// </summary>
         public libvlc_state_t CurrentMediaState => m_CurrentMediaState;
+
+        internal VlcMediaPlayer CorePlayer => m_Player;
 
         /// <summary>
         /// 检查是否正在播放
@@ -144,7 +154,7 @@ namespace yan.libvlc
             UpdateTexture();
         }
 
-        private void OnDestroy()
+        protected virtual void OnDestroy()
         {
             m_IsDestroyed = true;
             CleanupResources();
@@ -152,6 +162,17 @@ namespace yan.libvlc
 
         private void OnEnable()
         {
+            // Unity首次启用时由OnAwake中的配置决定是否播放。
+            // 只有经历过OnDisable后，才在这里恢复或重建。
+            if (!m_HasBeenDisabled)
+                return;
+
+            m_HasBeenDisabled = false;
+            if (!m_ShouldResumeOnEnable)
+                return;
+
+            m_ShouldResumeOnEnable = false;
+
             // 如果在OnDisable中释放了播放器到对象池，则需要重新创建
             if (m_IsReleased || m_Player == null)
             {
@@ -169,23 +190,14 @@ namespace yan.libvlc
             {
                 try
                 {
-                    if (!m_Player.IsPlaying())
-                    {
-                        // 如果是暂停状态，使用Pause切换回播放状态
-                        if (m_CurrentMediaState == libvlc_state_t.libvlc_Paused)
-                        {
-                            m_Player.Pause(); // 切换播放状态
-                        }
-                        // 如果是停止或其他状态，通过重新设置Url开始播放
-                        else
-                        {
-                            m_Player.UpdateUrl(m_Url);
-                        }
-                    }
+                    if (!m_Player.IsPlaying() && !m_Player.Resume())
+                        LogWarning("界面启用后恢复播放失败");
                 }
                 catch (Exception ex)
                 {
                     // 播放器可能已失效，需要重新创建
+                    LogWarning($"恢复播放器失败，将重新创建: {ex.Message}");
+                    m_Player?.Dispose();
                     m_Player = null;
                     if (!string.IsNullOrEmpty(m_Url) && !m_IsReleased)
                     {
@@ -195,8 +207,11 @@ namespace yan.libvlc
             }
         }
 
-        private void OnDisable()
+        protected virtual void OnDisable()
         {
+            m_HasBeenDisabled = true;
+            m_ShouldResumeOnEnable = m_Player != null && IsPlaying;
+
             // 当组件被禁用时，释放资源到对象池以便其他地方复用
             if (m_Player != null && !m_IsReleased && !m_IsDestroyed && m_UseObjectPool)
             {
@@ -209,9 +224,9 @@ namespace yan.libvlc
                 {
                     m_Player.Pause();
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // 忽略异常
+                    LogWarning($"组件禁用时暂停播放器失败: {ex.Message}");
                 }
             }
         }
@@ -229,6 +244,7 @@ namespace yan.libvlc
         {
             if (string.IsNullOrEmpty(url))
             {
+                LogError("媒体URL不能为空");
                 return;
             }
 
@@ -247,8 +263,10 @@ namespace yan.libvlc
                     {
                         m_Player.UpdateUrl(url);
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
+                        LogWarning($"切换媒体失败，将重建播放器: {ex.Message}");
+                        m_Player?.Dispose();
                         m_Player = null;
                         Play();
                     }
@@ -265,63 +283,58 @@ namespace yan.libvlc
 
             if (!gameObject.activeSelf)
             {
+                LogWarning("GameObject未激活，忽略播放请求");
                 return;
             }
 
             if (string.IsNullOrEmpty(m_Url))
             {
+                LogError("未设置媒体URL，无法播放");
                 return;
             }
 
             // 重置释放状态
             m_IsReleased = false;
 
+            bool createdPlayer = false;
             if (m_Player == null)
-            {
-                CreatePlayer();
-            }
-
-            bool wasPlaying = false;
-
-            try
-            {
-                wasPlaying = m_Player.IsPlaying();
-            }
-            catch (Exception)
-            {
-                CreatePlayer();
-                wasPlaying = false;
-            }
-
-            if (!wasPlaying)
             {
                 try
                 {
-                    m_Player.Pause(); // 通过Pause方法切换播放状态
-
-                    // 检查是否开始播放了
-                    if (m_Player.IsPlaying() && !wasPlaying)
-                    {
-                        // 直接触发开始播放事件
-                        OnPlayEvent?.Invoke();
-                    }
+                    CreatePlayer();
+                    createdPlayer = true;
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // 忽略异常
+                    HandlePlaybackFailure("创建播放器失败", ex);
+                    return;
                 }
+            }
+
+            if (m_Player == null)
+            {
+                LogError("无法创建播放器");
+                return;
             }
 
             try
             {
-                if (m_Player.IsPlaying())
-                {
-                    m_Player.UpdateUrl(m_Url);
-                }
+                if (!createdPlayer && !m_Player.IsPlaying() && !m_Player.Play())
+                    LogWarning("播放器未能开始播放");
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // 忽略异常
+                LogWarning($"播放器实例失效，将重新创建: {ex.Message}");
+                m_Player.Dispose();
+                m_Player = null;
+                try
+                {
+                    CreatePlayer();
+                }
+                catch (Exception recreateException)
+                {
+                    HandlePlaybackFailure("重新创建播放器失败", recreateException);
+                }
             }
         }
 
@@ -336,19 +349,12 @@ namespace yan.libvlc
             {
                 if (m_Player != null)
                 {
-                    bool wasPlaying = m_Player.IsPlaying();
                     m_Player.Stop();
-
-                    // 如果之前在播放状态，直接触发停止事件
-                    if (wasPlaying)
-                    {
-                        OnStopEvent?.Invoke();
-                    }
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // 忽略异常
+                LogWarning($"停止播放失败: {ex.Message}");
             }
         }
 
@@ -361,11 +367,12 @@ namespace yan.libvlc
 
             try
             {
-                m_Player?.Pause();
+                if (m_Player != null && !m_Player.TogglePause())
+                    LogWarning("播放器未能切换暂停状态");
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // 忽略异常
+                LogWarning($"切换暂停状态失败: {ex.Message}");
             }
         }
 
@@ -376,6 +383,28 @@ namespace yan.libvlc
         {
             CheckEditorPlaying();
             SetUrl(m_Url, true);
+        }
+
+        /// <summary>
+        /// 释放当前核心实例，并使用当前组件配置重新创建。
+        /// 平台子类在实例级VLC参数变化后使用此方法。
+        /// </summary>
+        protected void RecreatePlayer()
+        {
+            RecreatePlayer(IsPlaying);
+        }
+
+        /// <summary>
+        /// 释放当前核心实例，并按调用方指定的状态决定是否重新播放。
+        /// </summary>
+        protected void RecreatePlayer(bool resumePlayback)
+        {
+            bool shouldPlay = resumePlayback && gameObject.activeInHierarchy && !string.IsNullOrEmpty(m_Url);
+            CleanupResources();
+            m_IsReleased = false;
+
+            if (shouldPlay)
+                Play();
         }
 
         #endregion
@@ -395,7 +424,7 @@ namespace yan.libvlc
         /// </summary>
         private void LogWarning(string message)
         {
-            // 移除调试信息输出
+            Debug.LogWarning($"[MediaPlayer] {message}", this);
         }
 
         /// <summary>
@@ -403,7 +432,30 @@ namespace yan.libvlc
         /// </summary>
         private void LogError(string message)
         {
-            // 移除调试信息输出
+            Debug.LogError($"[MediaPlayer] {message}", this);
+        }
+
+        private void HandlePlaybackFailure(string context, Exception exception)
+        {
+            string message = $"{context}: {exception.Message}";
+            LogError(message);
+            OnMediaPlayerErrorEvent?.Invoke(message);
+
+            if (m_Player == null)
+                return;
+
+            try
+            {
+                m_Player.Dispose();
+            }
+            catch (Exception disposeException)
+            {
+                LogError($"清理失败播放器时发生错误: {disposeException.Message}");
+            }
+            finally
+            {
+                m_Player = null;
+            }
         }
 
         /// <summary>
@@ -415,8 +467,10 @@ namespace yan.libvlc
 
             if (m_RawImage != null)
             {
-                m_IsInitialized = true;
+                return;
             }
+
+            LogError("缺少RawImage组件");
         }
 
         /// <summary>
@@ -441,8 +495,9 @@ namespace yan.libvlc
                     m_Player = MediaPlayerPool.Instance.GetPlayer(m_Width, m_Height, m_Url, m_Mute);
                     m_IsReleased = false; // 重置释放标志
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    LogWarning($"对象池获取失败，改为直接创建: {ex.Message}");
                     m_Player = new VlcMediaPlayer(m_Width, m_Height, m_Url, m_Mute);
                     m_IsReleased = false; // 重置释放标志
                 }
@@ -453,6 +508,9 @@ namespace yan.libvlc
                 m_Player = new VlcMediaPlayer(m_Width, m_Height, m_Url, m_Mute);
                 m_IsReleased = false; // 重置释放标志
             }
+
+            m_PreviousMediaState = m_CurrentMediaState;
+            m_CurrentMediaState = libvlc_state_t.libvlc_NothingSpecial;
 
             if (m_Texture == null)
             {
@@ -476,20 +534,20 @@ namespace yan.libvlc
         {
             try
             {
-                if ((m_Width <= 0 || m_Height <= 0) && m_Player?.VideoTrack != null)
-                {
-                    m_Width = (int)m_Player.VideoTrack.Value.i_width;
-                    m_Height = (int)m_Player.VideoTrack.Value.i_height;
-                }
+                if (m_RawImage == null || m_Player == null)
+                    return;
 
-                if (m_Width > 0 && m_Height > 0)
+                int textureWidth = m_Player.OutputWidth;
+                int textureHeight = m_Player.OutputHeight;
+
+                if (textureWidth > 0 && textureHeight > 0)
                 {
                     if (m_Texture != null)
                     {
                         Destroy(m_Texture);
                     }
 
-                    m_Texture = new Texture2D(m_Width, m_Height, TextureFormat.RGB24, false, false);
+                    m_Texture = new Texture2D(textureWidth, textureHeight, TextureFormat.RGB24, false, false);
                     m_RawImage.texture = m_Texture;
 
                     // 修正画面上下颠倒问题：翻转UV坐标
@@ -498,14 +556,14 @@ namespace yan.libvlc
                     if (m_AutoscaleRawImage)
                     {
                         RectTransform rect = m_RawImage.rectTransform;
-                        float ratio = m_Height / (float)m_Width;
+                        float ratio = textureHeight / (float)textureWidth;
                         rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, rect.rect.width * ratio);
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // 忽略异常
+                LogError($"创建视频纹理失败: {ex.Message}");
             }
         }
 
@@ -523,13 +581,20 @@ namespace yan.libvlc
             {
                 if (m_Player.CheckForImageUpdate(out byte[] imageData))
                 {
+                    int expectedSize = m_Texture.width * m_Texture.height * 3;
+                    if (imageData == null || imageData.Length != expectedSize)
+                    {
+                        LogError($"视频帧大小不匹配，期望 {expectedSize} 字节，实际 {imageData?.Length ?? 0} 字节");
+                        return;
+                    }
+
                     m_Texture.LoadRawTextureData(imageData);
                     m_Texture.Apply(false);
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // 忽略异常
+                LogError($"更新视频纹理失败: {ex.Message}");
             }
         }
 
@@ -577,14 +642,7 @@ namespace yan.libvlc
                         // 检测错误状态并触发错误事件
                         if (state == libvlc_state_t.libvlc_Error)
                         {
-                            string errorMessage = $"播放 {m_Url} 时发生错误";
-
-                            // 获取VLC的具体错误信息
-                            string vlcError = m_Player.GetErrorMessage();
-                            if (!string.IsNullOrEmpty(vlcError))
-                            {
-                                errorMessage += $": {vlcError}";
-                            }
+                            string errorMessage = "播放媒体时发生错误";
 
                             OnMediaPlayerErrorEvent?.Invoke(errorMessage);
 
@@ -593,9 +651,10 @@ namespace yan.libvlc
                         }
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
                     errorCount++;
+                    LogWarning($"读取播放器状态失败 ({errorCount}/{MAX_ERROR_COUNT}): {ex.Message}");
 
                     if (errorCount >= MAX_ERROR_COUNT)
                     {
@@ -641,9 +700,9 @@ namespace yan.libvlc
                         m_Player.Stop();
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // 忽略异常
+                    LogWarning($"释放前停止播放器失败: {ex.Message}");
                 }
 
                 // 只处理非Android播放器
@@ -658,15 +717,16 @@ namespace yan.libvlc
                             MediaPlayerPool.Instance.ReleasePlayer(m_Player, m_Width, m_Height, m_Mute);
                             m_IsReleased = true;
                         }
-                        catch (Exception)
+                        catch (Exception ex)
                         {
+                            LogWarning($"播放器归还对象池失败，将直接释放: {ex.Message}");
                             try
                             {
                                 m_Player.Dispose();
                             }
-                            catch
+                            catch (Exception disposeException)
                             {
-                                // 忽略异常
+                                LogError($"直接释放播放器失败: {disposeException.Message}");
                             }
                         }
                     }
@@ -677,9 +737,9 @@ namespace yan.libvlc
                         {
                             m_Player.Dispose();
                         }
-                        catch
+                        catch (Exception ex)
                         {
-                            // 忽略异常
+                            LogError($"释放播放器失败: {ex.Message}");
                         }
                     }
                 }
@@ -690,9 +750,9 @@ namespace yan.libvlc
                     {
                         m_Player.Dispose();
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        // 忽略异常
+                        LogError($"释放Android播放器失败: {ex.Message}");
                     }
                 }
 

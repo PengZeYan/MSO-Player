@@ -83,14 +83,13 @@ MonoBehaviour:
   m_GameObject: {fileID: 6331251163027968964}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 8a652fbbfa1d9d94c8ecf4c3ff40e9fd, type: 3}
+  m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  url: 
-  width: 1280
-  height: 720
-  autoscaleRawImage: 1
-  mute: 1
-  m_PlayOnStart: 0
-  AutoUpdateUrl: 0
-  autoTime: 5
+  m_Url:
+  m_Width: 1280
+  m_Height: 720
+  m_AutoscaleRawImage: 1
+  m_Mute: 1
+  m_PlayOnAwake: 0
+  m_UseObjectPool: 1

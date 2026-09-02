@@ -21,7 +21,7 @@ namespace yan.libvlc
         [SerializeField, Tooltip("是否使用硬件解码（通常更快但某些设备可能不稳定）")]
         private bool m_UseHardwareAcceleration = true;
 
-        [SerializeField, Tooltip("网络缓冲时间（毫秒）")]
+        [SerializeField, Min(0), Tooltip("网络缓冲时间（毫秒）")]
         private int m_NetworkCachingTime = 3000;
 
         #endregion
@@ -30,6 +30,7 @@ namespace yan.libvlc
 
         private bool m_IsAndroid;
         private bool m_HasReportedMemoryWarning = false;
+        private Coroutine m_LowMemoryRestartCoroutine;
 
         #endregion
 
@@ -50,10 +51,18 @@ namespace yan.libvlc
             Application.lowMemory += OnLowMemory;
         }
 
-        protected virtual void OnDestroy()
+        protected override void OnDestroy()
         {
             // 移除低内存警告监听
             Application.lowMemory -= OnLowMemory;
+            StopLowMemoryRestart();
+            base.OnDestroy();
+        }
+
+        protected override void OnDisable()
+        {
+            StopLowMemoryRestart();
+            base.OnDisable();
         }
 
         #endregion
@@ -73,7 +82,7 @@ namespace yan.libvlc
             // 创建VLC参数
             string[] androidParams = GenerateAndroidParameters();
             
-            Debug.Log($"为Android创建VLC播放器，URL: {url}, 分辨率: {width}x{height}, 参数: {string.Join(", ", androidParams)}");
+            Debug.Log($"为Android创建VLC播放器，分辨率: {width}x{height}, 参数: {string.Join(", ", androidParams)}");
             
             // 创建带有特定参数的VLC播放器
             return new VlcMediaPlayer(width, height, url, mute, androidParams);
@@ -93,10 +102,10 @@ namespace yan.libvlc
             
             m_NetworkCachingTime = milliseconds;
             
-            // 如果已经在播放，需要重新应用设置
-            if (IsPlaying)
+            // 这是LibVLC实例级参数，已有核心实例必须重建后才能生效。
+            if (CorePlayer != null)
             {
-                Refresh();
+                RecreatePlayer();
             }
         }
 
@@ -122,9 +131,7 @@ namespace yan.libvlc
                 "--avcodec-threads=4"                       // 多线程解码
             };
             
-            // 根据网络流类型动态调整缓冲参数
-            // 这里使用较低的默认值，实际使用时会根据URL类型调整
-            parameters.Add("--network-caching=1000");       // 降低网络缓冲（从3000ms降到1000ms）
+            parameters.Add($"--network-caching={m_NetworkCachingTime}");
 
             // 根据设备内存和性能添加特定参数
             if (m_ReduceResolutionOnLowMemory && PlatformManager.IsLowEndDevice)
@@ -145,9 +152,8 @@ namespace yan.libvlc
             // 硬件加速选项
             if (m_UseHardwareAcceleration && PlatformManager.SupportsHardwareDecoding)
             {
-                // 使用MediaCodec低延迟模式
+                // 保留内存视频回调所需的解码路径，不强制MediaCodec直接渲染到Surface。
                 parameters.Add("--codec=mediacodec_ndk,mediacodec,all");   // 优先使用NDK版本
-                parameters.Add("--mediacodec-dr");          // 启用直接渲染
                 parameters.Add("--mediacodec-audio");       // 音频也使用硬件加速
                 Debug.Log("启用Android MediaCodec硬件解码（低延迟模式）");
             }
@@ -193,14 +199,17 @@ namespace yan.libvlc
                 m_HasReportedMemoryWarning = true;
             }
             
-            // 如果设置了在低内存时降低分辨率
+            // 低内存时重启解码器，释放LibVLC内部缓存和解码队列。
+            // 输出分辨率不会在这里隐式变化，避免纹理与回调缓冲区尺寸失配。
             if (m_ReduceResolutionOnLowMemory && IsPlaying)
             {
-                // 尝试降低分辨率以减少内存使用
                 Stop();
-                
-                // 在恢复播放前给系统一些时间清理内存
-                StartCoroutine(RestartPlaybackAfterDelay(0.5f));
+
+                if (m_LowMemoryRestartCoroutine == null)
+                {
+                    // 在恢复播放前给系统一些时间清理内存
+                    m_LowMemoryRestartCoroutine = StartCoroutine(RestartPlaybackAfterDelay(0.5f));
+                }
             }
         }
 
@@ -210,9 +219,19 @@ namespace yan.libvlc
         private IEnumerator RestartPlaybackAfterDelay(float delayInSeconds)
         {
             yield return new WaitForSeconds(delayInSeconds);
-            Play();
+            m_LowMemoryRestartCoroutine = null;
+            RecreatePlayer(true);
+        }
+
+        private void StopLowMemoryRestart()
+        {
+            if (m_LowMemoryRestartCoroutine == null)
+                return;
+
+            StopCoroutine(m_LowMemoryRestartCoroutine);
+            m_LowMemoryRestartCoroutine = null;
         }
 
         #endregion
     }
-} 
+}

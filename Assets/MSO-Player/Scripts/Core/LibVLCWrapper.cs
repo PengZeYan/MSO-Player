@@ -300,6 +300,13 @@ namespace yan.libvlc.Core
         internal static extern void libvlc_media_release(IntPtr media);
 
         /// <summary>
+        /// 增加媒体描述符对象的引用计数
+        /// </summary>
+        /// <param name="media">媒体指针</param>
+        [DllImport("libvlc")]
+        internal static extern void libvlc_media_retain(IntPtr media);
+
+        /// <summary>
         /// 设置媒体播放器将使用的媒体
         /// </summary>
         /// <param name="mediaPlayer">媒体播放器</param>

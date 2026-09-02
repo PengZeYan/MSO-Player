@@ -20,15 +20,13 @@ namespace yan.libvlc.Core
         {
             if (action == null) return;
             
-            // 如果已经在主线程上，则直接执行
-            if (Thread.CurrentThread.ManagedThreadId == 1)
+            if (UnityMainThreadDispatcher.IsMainThread)
             {
                 action();
                 return;
             }
-            
-            // 使用Unity的主线程同步上下文执行
-            UnityMainThreadDispatcher.Instance.Enqueue(action);
+
+            UnityMainThreadDispatcher.EnqueueFromAnyThread(action);
         }
     }
     
@@ -38,6 +36,30 @@ namespace yan.libvlc.Core
     public class UnityMainThreadDispatcher : MonoBehaviour
     {
         private static UnityMainThreadDispatcher _instance;
+        private static int _mainThreadId;
+        private static readonly Queue<Action> _actionQueue = new Queue<Action>();
+        private static readonly object _queueLock = new object();
+
+        internal static bool IsMainThread =>
+            _mainThreadId != 0 && Thread.CurrentThread.ManagedThreadId == _mainThreadId;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetState()
+        {
+            _instance = null;
+            _mainThreadId = 0;
+            lock (_queueLock)
+            {
+                _actionQueue.Clear();
+            }
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        private static void InitializeOnMainThread()
+        {
+            _mainThreadId = Thread.CurrentThread.ManagedThreadId;
+            EnsureInstanceOnMainThread();
+        }
         
         /// <summary>
         /// 获取实例（如果不存在则创建）
@@ -48,24 +70,55 @@ namespace yan.libvlc.Core
             {
                 if (_instance == null)
                 {
-                    // 在场景中查找现有实例
-                    _instance = FindObjectOfType<UnityMainThreadDispatcher>();
-                    
-                    // 如果不存在，则创建一个新的游戏对象
-                    if (_instance == null)
-                    {
-                        GameObject go = new GameObject("UnityMainThreadDispatcher");
-                        _instance = go.AddComponent<UnityMainThreadDispatcher>();
-                        DontDestroyOnLoad(go);
-                    }
+                    if (!IsMainThread)
+                        throw new InvalidOperationException("主线程调度器尚未在Unity主线程初始化");
+
+                    EnsureInstanceOnMainThread();
                 }
-                
+
                 return _instance;
             }
         }
-        
-        private readonly Queue<Action> _actionQueue = new Queue<Action>();
-        private readonly object _queueLock = new object();
+
+        private static void EnsureInstanceOnMainThread()
+        {
+            if (_instance != null)
+                return;
+
+            _instance = FindObjectOfType<UnityMainThreadDispatcher>();
+            if (_instance != null)
+                return;
+
+            GameObject go = new GameObject("UnityMainThreadDispatcher");
+            _instance = go.AddComponent<UnityMainThreadDispatcher>();
+            DontDestroyOnLoad(go);
+        }
+
+        private void Awake()
+        {
+            if (_mainThreadId == 0)
+                _mainThreadId = Thread.CurrentThread.ManagedThreadId;
+
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+        }
+
+        /// <summary>从任意托管线程将操作加入Unity主线程队列。</summary>
+        public static void EnqueueFromAnyThread(Action action)
+        {
+            if (action == null) return;
+
+            lock (_queueLock)
+            {
+                _actionQueue.Enqueue(action);
+            }
+        }
         
         /// <summary>
         /// 将操作添加到队列
@@ -73,30 +126,29 @@ namespace yan.libvlc.Core
         /// <param name="action">要执行的操作</param>
         public void Enqueue(Action action)
         {
-            if (action == null) return;
-            
-            lock (_queueLock)
-            {
-                _actionQueue.Enqueue(action);
-            }
+            EnqueueFromAnyThread(action);
         }
         
         private void Update()
         {
-            lock (_queueLock)
+            while (true)
             {
-                while (_actionQueue.Count > 0)
+                Action action;
+                lock (_queueLock)
                 {
-                    Action action = _actionQueue.Dequeue();
-                    
-                    try
-                    {
-                        action();
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.LogError($"执行主线程操作时发生异常: {ex.Message}");
-                    }
+                    if (_actionQueue.Count == 0)
+                        return;
+
+                    action = _actionQueue.Dequeue();
+                }
+
+                try
+                {
+                    action();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"执行主线程操作时发生异常: {ex.Message}");
                 }
             }
         }
@@ -120,6 +172,16 @@ namespace yan.libvlc.Core
         private static DisplayCB _displayCallback;
         private GCHandle _gcHandle;
 
+        private readonly object _lifecycleLock = new object();
+        private readonly object _callbackLock = new object();
+        private readonly object _trackThreadLock = new object();
+        private bool _acceptCallbacks = true;
+        private int _activeCallbacks = 0;
+        private int _disposeState = 0;
+        private int _mediaGeneration = 0;
+        private Thread _trackReaderThread;
+        private CancellationTokenSource _trackReaderCancellation;
+
         // 优化1：双缓冲机制，避免每帧分配新数组
         private byte[] _currentImage;
         private byte[] _backBuffer;
@@ -129,19 +191,16 @@ namespace yan.libvlc.Core
         private int _width = 480;
         private int _height = 256;
         private int _channels = 3;
+        private readonly bool _useDefaultMediaOptions;
+        private const long MAX_OUTPUT_PIXELS = 33_554_432;
         
         // 用于静态回调方法访问实例的静态字典
-        private static Dictionary<IntPtr, VlcMediaPlayer> _playerInstances = new Dictionary<IntPtr, VlcMediaPlayer>();
+        private static readonly Dictionary<IntPtr, VlcMediaPlayer> _playerInstances = new Dictionary<IntPtr, VlcMediaPlayer>();
+        private static readonly object _playerInstancesLock = new object();
         
         // 优化：优化默认参数
         private const string DEFAULT_ARGS = "--ignore-config;--no-xlib;--no-video-title-show;--no-osd;--clock-jitter=0;--avcodec-threads=4";
         private libvlc_video_track_t? _videoTrack = null;
-        private IntPtr _trackToRelease;
-        private int _tracks;
-        
-        private volatile bool _cancel = false;
-        private bool _isRunning = false;
-        
         // 图像数据跟踪
         private float _lastImageReceivedTime;
         private bool _hasReceivedAnyImage = false;
@@ -158,16 +217,37 @@ namespace yan.libvlc.Core
         {
             get
             {
-                if (_mediaPlayer != IntPtr.Zero)
-                    return LibVLCWrapper.libvlc_media_player_get_state(_mediaPlayer);
-                return libvlc_state_t.libvlc_Opening;
+                lock (_lifecycleLock)
+                {
+                    if (_mediaPlayer != IntPtr.Zero && !IsDisposed)
+                        return LibVLCWrapper.libvlc_media_player_get_state(_mediaPlayer);
+                    return libvlc_state_t.libvlc_NothingSpecial;
+                }
             }
         }
 
         /// <summary>
         /// 获取当前视频轨道信息
         /// </summary>
-        public libvlc_video_track_t? VideoTrack => _videoTrack;
+        public libvlc_video_track_t? VideoTrack
+        {
+            get
+            {
+                lock (_lifecycleLock)
+                {
+                    return _videoTrack;
+                }
+            }
+        }
+
+        /// <summary>获取当前输出缓冲区宽度</summary>
+        public int OutputWidth => _width;
+
+        /// <summary>获取当前输出缓冲区高度</summary>
+        public int OutputHeight => _height;
+
+        /// <summary>播放器是否已经释放</summary>
+        public bool IsDisposed => Volatile.Read(ref _disposeState) != 0;
         
         /// <summary>
         /// 获取无图像数据接收的时间（秒）
@@ -177,14 +257,24 @@ namespace yan.libvlc.Core
             get
             {
                 // 如果从未收到过图像数据，则检查播放状态
-                if (!_hasReceivedAnyImage)
+                bool hasReceivedAnyImage;
+                float lastImageReceivedTime;
+
+                lock (_bufferLock)
+                {
+                    hasReceivedAnyImage = _hasReceivedAnyImage;
+                    lastImageReceivedTime = _lastImageReceivedTime;
+                }
+
+                if (!hasReceivedAnyImage)
                 {
                     // 只有在播放状态下才认为是问题
-                    return State == libvlc_state_t.libvlc_Playing ? 
-                        (_lastImageReceivedTime > 0 ? Time.time - _lastImageReceivedTime : 3.0f) : 0f;
+                    return State == libvlc_state_t.libvlc_Playing
+                        ? Mathf.Max(0f, Time.realtimeSinceStartup - lastImageReceivedTime)
+                        : 0f;
                 }
                 
-                return Time.time - _lastImageReceivedTime;
+                return Time.realtimeSinceStartup - lastImageReceivedTime;
             }
         }
 
@@ -214,22 +304,39 @@ namespace yan.libvlc.Core
         /// <param name="customArgs">自定义的VLC启动参数，如果为null则使用默认参数</param>
         public VlcMediaPlayer(int width, int height, string mediaUrl, bool mute, string[] customArgs)
         {
+            if (string.IsNullOrWhiteSpace(mediaUrl))
+                throw new ArgumentException("媒体URL不能为空", nameof(mediaUrl));
+
+            if (width <= 0)
+                throw new ArgumentOutOfRangeException(nameof(width), "视频输出宽度必须大于0");
+            if (height <= 0)
+                throw new ArgumentOutOfRangeException(nameof(height), "视频输出高度必须大于0");
+            if ((long)width * height > MAX_OUTPUT_PIXELS)
+                throw new ArgumentOutOfRangeException("width/height", "视频输出像素数量过大");
+
             _width = width;
             _height = height;
             _mute = mute;
+            _useDefaultMediaOptions = customArgs == null || customArgs.Length == 0;
             _gcHandle = GCHandle.Alloc(this);
-            _lastImageReceivedTime = 0;
+            _lastImageReceivedTime = Time.realtimeSinceStartup;
 
-            // 优化：预分配缓冲区
-            int bufferSize = _width * _channels * _height;
-            _currentImage = new byte[bufferSize];
-            _backBuffer = new byte[bufferSize];
+            try
+            {
+                AllocateFrameBuffers();
 
-            // 注意：LibVLC初始化必须在主线程执行，不能异步
-            // 通过MediaPlayerPreloader在登录界面预热来避免首次使用时的卡顿
-            InitializeLibVLC(mediaUrl, customArgs);
-            SetupCallbacks();
-            StartPlayback();
+                // 注意：LibVLC初始化必须在主线程执行，不能异步
+                // 通过MediaPlayerPreloader在登录界面预热来避免首次使用时的卡顿
+                InitializeLibVLC(mediaUrl, customArgs);
+                SetupCallbacks();
+                StartPlayback();
+            }
+            catch
+            {
+                Interlocked.Exchange(ref _disposeState, 1);
+                ReleaseResources();
+                throw;
+            }
         }
 
         #endregion
@@ -244,39 +351,113 @@ namespace yan.libvlc.Core
         public bool CheckForImageUpdate(out byte[] currentImage)
         {
             currentImage = null;
-            
-            // 在主线程更新时间戳
-            if (_needToUpdateTimestamp)
+
+            bool updateTimestamp;
+            lock (_bufferLock)
             {
-                _lastImageReceivedTime = Time.time;
+                updateTimestamp = _needToUpdateTimestamp;
                 _needToUpdateTimestamp = false;
-            }
-            
-            if (_update)
-            {
-                // 优化：使用锁保护缓冲区交换
-                lock (_bufferLock)
+
+                if (_update)
                 {
                     currentImage = _currentImage;
                     _update = false;
                 }
-                return true;
             }
-            return false;
+
+            if (updateTimestamp)
+            {
+                lock (_bufferLock)
+                {
+                    _lastImageReceivedTime = Time.realtimeSinceStartup;
+                }
+            }
+
+            return currentImage != null;
         }
 
         /// <summary>
-        /// 暂停或恢复播放
+        /// 开始或恢复播放当前媒体
+        /// </summary>
+        /// <returns>播放请求是否成功提交</returns>
+        public bool Play()
+        {
+            lock (_lifecycleLock)
+            {
+                if (IsDisposed || _mediaPlayer == IntPtr.Zero)
+                    return false;
+
+                int result = LibVLCWrapper.libvlc_media_player_play(_mediaPlayer);
+                if (result != 0)
+                    return false;
+
+                ApplyAudioStateLocked();
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// 暂停播放；已暂停或未播放时不改变状态
         /// </summary>
         public void Pause()
         {
-            if (IsPlaying())
+            lock (_lifecycleLock)
             {
-                LibVLCWrapper.libvlc_media_player_set_pause(_mediaPlayer, 1);
+                if (IsDisposed || _mediaPlayer == IntPtr.Zero)
+                    return;
+
+                if (LibVLCWrapper.libvlc_media_player_is_playing(_mediaPlayer))
+                    LibVLCWrapper.libvlc_media_player_set_pause(_mediaPlayer, 1);
             }
-            else
+        }
+
+        /// <summary>恢复已暂停的媒体；非暂停状态下提交普通播放请求。</summary>
+        public bool Resume()
+        {
+            lock (_lifecycleLock)
             {
-                LibVLCWrapper.libvlc_media_player_play(_mediaPlayer);
+                if (IsDisposed || _mediaPlayer == IntPtr.Zero)
+                    return false;
+
+                if (LibVLCWrapper.libvlc_media_player_get_state(_mediaPlayer) == libvlc_state_t.libvlc_Paused)
+                {
+                    LibVLCWrapper.libvlc_media_player_set_pause(_mediaPlayer, 0);
+                    ApplyAudioStateLocked();
+                    return true;
+                }
+
+                int result = LibVLCWrapper.libvlc_media_player_play(_mediaPlayer);
+                if (result == 0)
+                    ApplyAudioStateLocked();
+                return result == 0;
+            }
+        }
+
+        /// <summary>在播放与暂停状态之间切换。</summary>
+        public bool TogglePause()
+        {
+            lock (_lifecycleLock)
+            {
+                if (IsDisposed || _mediaPlayer == IntPtr.Zero)
+                    return false;
+
+                if (LibVLCWrapper.libvlc_media_player_is_playing(_mediaPlayer))
+                {
+                    LibVLCWrapper.libvlc_media_player_set_pause(_mediaPlayer, 1);
+                    return true;
+                }
+
+                if (LibVLCWrapper.libvlc_media_player_get_state(_mediaPlayer) == libvlc_state_t.libvlc_Paused)
+                {
+                    LibVLCWrapper.libvlc_media_player_set_pause(_mediaPlayer, 0);
+                    ApplyAudioStateLocked();
+                    return true;
+                }
+
+                int result = LibVLCWrapper.libvlc_media_player_play(_mediaPlayer);
+                if (result == 0)
+                    ApplyAudioStateLocked();
+                return result == 0;
             }
         }
 
@@ -285,11 +466,15 @@ namespace yan.libvlc.Core
         /// </summary>
         public void Stop()
         {
-            if (_mediaPlayer != IntPtr.Zero)
+            lock (_lifecycleLock)
             {
+                if (IsDisposed || _mediaPlayer == IntPtr.Zero)
+                    return;
+
                 LibVLCWrapper.libvlc_media_player_stop(_mediaPlayer);
-                SetBlankFrame();
             }
+
+            SetBlankFrame();
         }
 
         /// <summary>
@@ -298,30 +483,7 @@ namespace yan.libvlc.Core
         /// <param name="newUrl">新的媒体URL</param>
         public void UpdateUrl(string newUrl)
         {
-            if (string.IsNullOrEmpty(newUrl) || _libvlc == IntPtr.Zero)
-            {
-                Debug.LogError("无效的URL或LibVLC实例未初始化");
-                return;
-            }
-
-            Stop();
-
-            IntPtr newMedia = LibVLCWrapper.libvlc_media_new_location(_libvlc, newUrl);
-            if (newMedia == IntPtr.Zero)
-            {
-                Debug.LogError("无法创建新的媒体对象");
-                return;
-            }
-
-            LibVLCWrapper.libvlc_media_player_set_media(_mediaPlayer, newMedia);
-            LibVLCWrapper.libvlc_media_release(newMedia);
-            LibVLCWrapper.libvlc_media_player_play(_mediaPlayer);
-            
-            // 修复：重新应用静音设置
-            if (_mute)
-            {
-                LibVLCWrapper.libvlc_audio_set_mute(_mediaPlayer, 1);
-            }
+            SwitchUrl(newUrl, false);
         }
 
         /// <summary>
@@ -331,102 +493,8 @@ namespace yan.libvlc.Core
         /// <param name="transitionCallback">转换完成后的回调</param>
         public void UpdateUrlSmooth(string newUrl, Action transitionCallback = null)
         {
-            if (string.IsNullOrEmpty(newUrl) || _libvlc == IntPtr.Zero)
-            {
-                Debug.LogError("无效的URL或LibVLC实例未初始化");
-                return;
-            }
-
-            // 检查是否为网络流，网络流使用特殊处理
-            bool isNetworkStream = newUrl.ToLower().StartsWith("rtmp://") ||
-                                  newUrl.ToLower().StartsWith("rtsp://") ||
-                                  newUrl.ToLower().StartsWith("http://") ||
-                                  newUrl.ToLower().StartsWith("https://");
-
-            // 创建新的媒体对象
-            IntPtr newMedia = LibVLCWrapper.libvlc_media_new_location(_libvlc, newUrl);
-            if (newMedia == IntPtr.Zero)
-            {
-                Debug.LogError("无法创建新的媒体对象");
-                return;
-            }
-
-            // 应用网络流优化参数
-            if (isNetworkStream)
-            {
-                // 设置低延迟参数
-                LibVLCWrapper.libvlc_media_add_option(newMedia, ":network-caching=100");
-                LibVLCWrapper.libvlc_media_add_option(newMedia, ":clock-jitter=0");
-                LibVLCWrapper.libvlc_media_add_option(newMedia, ":live-caching=50");
-                // 对于直播流，添加此选项可能会减少首次播放延迟
-                LibVLCWrapper.libvlc_media_add_option(newMedia, ":file-caching=50");
-            }
-
-            // 预解析媒体以提前缓冲
-            LibVLCWrapper.libvlc_media_parse_async(newMedia);
-
-            // 等待预解析完成，然后快速切换
-            System.Threading.ThreadPool.QueueUserWorkItem(_ => {
-                // 等待解析完成，最长等待500ms
-                int waitCount = 0;
-                int maxWait = 50; // 10ms * 50 = 500ms
-                
-                while (waitCount < maxWait)
-                {
-                    libvlc_media_parsed_status_t status = LibVLCWrapper.libvlc_media_get_parsed_status(newMedia);
-                    if (status == libvlc_media_parsed_status_t.libvlc_media_parsed_status_done ||
-                        status == libvlc_media_parsed_status_t.libvlc_media_parsed_status_failed)
-                    {
-                        break;
-                    }
-                    
-                    System.Threading.Thread.Sleep(10);
-                    waitCount++;
-                }
-                
-                // 在主线程中执行切换
-                UnityMainThreadDispatcher.Instance.Enqueue(() => {
-                    try
-                    {
-                        // 记录上一个图像数据
-                        byte[] lastImageData = null;
-                        if (_currentImage != null)
-                        {
-                            lastImageData = new byte[_currentImage.Length];
-                            Array.Copy(_currentImage, lastImageData, _currentImage.Length);
-                        }
-                        
-                        // 快速停止当前播放但不释放资源
-                        if (_mediaPlayer != IntPtr.Zero)
-                        {
-                            LibVLCWrapper.libvlc_media_player_stop(_mediaPlayer);
-                        }
-
-                        // 设置新媒体并立即播放
-                        LibVLCWrapper.libvlc_media_player_set_media(_mediaPlayer, newMedia);
-                        LibVLCWrapper.libvlc_media_player_play(_mediaPlayer);
-                        
-                        if (_mute)
-                        {
-                            LibVLCWrapper.libvlc_audio_set_mute(_mediaPlayer, 1);
-                        }
-                        
-                        // 如果有最后一帧数据，在新视频加载期间继续显示
-                        if (lastImageData != null)
-                        {
-                            _currentImage = lastImageData;
-                        }
-                        
-                        // 调用回调
-                        transitionCallback?.Invoke();
-                    }
-                    finally
-                    {
-                        // 释放媒体对象
-                        LibVLCWrapper.libvlc_media_release(newMedia);
-                    }
-                });
-            });
+            SwitchUrl(newUrl, true);
+            transitionCallback?.Invoke();
         }
 
         /// <summary>
@@ -435,8 +503,87 @@ namespace yan.libvlc.Core
         /// <returns>如果正在播放则返回true，否则返回false</returns>
         public bool IsPlaying()
         {
-            return _mediaPlayer != IntPtr.Zero && 
-                   LibVLCWrapper.libvlc_media_player_is_playing(_mediaPlayer);
+            lock (_lifecycleLock)
+            {
+                return !IsDisposed &&
+                       _mediaPlayer != IntPtr.Zero &&
+                       LibVLCWrapper.libvlc_media_player_is_playing(_mediaPlayer);
+            }
+        }
+
+        /// <summary>获取当前播放时间（毫秒）</summary>
+        public long GetTime()
+        {
+            lock (_lifecycleLock)
+            {
+                if (IsDisposed || _mediaPlayer == IntPtr.Zero)
+                    return 0;
+
+                long value = LibVLCWrapper.libvlc_media_player_get_time(_mediaPlayer);
+                return value >= 0 ? value : 0;
+            }
+        }
+
+        /// <summary>设置当前播放时间（毫秒）</summary>
+        public bool SetTime(long time)
+        {
+            lock (_lifecycleLock)
+            {
+                return !IsDisposed &&
+                       _mediaPlayer != IntPtr.Zero &&
+                       LibVLCWrapper.libvlc_media_player_set_time(_mediaPlayer, Math.Max(0, time)) == 0;
+            }
+        }
+
+        /// <summary>获取当前媒体总时长（毫秒）</summary>
+        public long GetLength()
+        {
+            lock (_lifecycleLock)
+            {
+                if (IsDisposed || _mediaPlayer == IntPtr.Zero)
+                    return 0;
+
+                long value = LibVLCWrapper.libvlc_media_player_get_length(_mediaPlayer);
+                if (value <= 0 && _media != IntPtr.Zero)
+                    value = LibVLCWrapper.libvlc_media_get_duration(_media);
+
+                return value >= 0 ? value : 0;
+            }
+        }
+
+        /// <summary>获取当前播放位置（0到1）</summary>
+        public float GetPosition()
+        {
+            lock (_lifecycleLock)
+            {
+                if (IsDisposed || _mediaPlayer == IntPtr.Zero)
+                    return 0f;
+
+                float value = LibVLCWrapper.libvlc_media_player_get_position(_mediaPlayer);
+                return value >= 0f ? Mathf.Clamp01(value) : 0f;
+            }
+        }
+
+        /// <summary>设置当前播放位置（0到1）</summary>
+        public bool SetPosition(float position)
+        {
+            lock (_lifecycleLock)
+            {
+                return !IsDisposed &&
+                       _mediaPlayer != IntPtr.Zero &&
+                       LibVLCWrapper.libvlc_media_player_set_position(_mediaPlayer, Mathf.Clamp01(position)) == 0;
+            }
+        }
+
+        /// <summary>当前媒体是否允许跳转</summary>
+        public bool IsSeekable()
+        {
+            lock (_lifecycleLock)
+            {
+                return !IsDisposed &&
+                       _mediaPlayer != IntPtr.Zero &&
+                       LibVLCWrapper.libvlc_media_player_is_seekable(_mediaPlayer);
+            }
         }
 
         /// <summary>
@@ -447,19 +594,22 @@ namespace yan.libvlc.Core
         public bool SetMute(bool mute)
         {
             _mute = mute;
-            
-            if (_mediaPlayer == IntPtr.Zero)
-                return false;
-            
-            try
+
+            lock (_lifecycleLock)
             {
-                int result = LibVLCWrapper.libvlc_audio_set_mute(_mediaPlayer, mute ? 1 : 0);
-                return result == 0;
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"设置静音状态失败: {ex.Message}");
-                return false;
+                if (IsDisposed || _mediaPlayer == IntPtr.Zero)
+                    return false;
+
+                try
+                {
+                    int result = LibVLCWrapper.libvlc_audio_set_mute(_mediaPlayer, mute ? 1 : 0);
+                    return result == 0;
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"设置静音状态失败: {ex.Message}");
+                    return false;
+                }
             }
         }
 
@@ -469,18 +619,21 @@ namespace yan.libvlc.Core
         /// <returns>是否静音</returns>
         public bool IsMuted()
         {
-            if (_mediaPlayer == IntPtr.Zero)
-                return _mute;
-            
-            try
+            lock (_lifecycleLock)
             {
-                int mute = LibVLCWrapper.libvlc_audio_get_mute(_mediaPlayer);
-                return mute == 1;
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"获取静音状态失败: {ex.Message}");
-                return _mute;
+                if (IsDisposed || _mediaPlayer == IntPtr.Zero)
+                    return _mute;
+
+                try
+                {
+                    int mute = LibVLCWrapper.libvlc_audio_get_mute(_mediaPlayer);
+                    return mute == 1;
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"获取静音状态失败: {ex.Message}");
+                    return _mute;
+                }
             }
         }
 
@@ -491,19 +644,22 @@ namespace yan.libvlc.Core
         /// <returns>操作是否成功</returns>
         public bool SetVolume(int volume)
         {
-            if (_mediaPlayer == IntPtr.Zero)
-                return false;
-            
-            try
+            lock (_lifecycleLock)
             {
-                volume = Mathf.Clamp(volume, 0, 100);
-                int result = LibVLCWrapper.libvlc_audio_set_volume(_mediaPlayer, volume);
-                return result == 0;
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"设置音量失败: {ex.Message}");
-                return false;
+                if (IsDisposed || _mediaPlayer == IntPtr.Zero)
+                    return false;
+
+                try
+                {
+                    volume = Mathf.Clamp(volume, 0, 100);
+                    int result = LibVLCWrapper.libvlc_audio_set_volume(_mediaPlayer, volume);
+                    return result == 0;
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"设置音量失败: {ex.Message}");
+                    return false;
+                }
             }
         }
 
@@ -513,17 +669,20 @@ namespace yan.libvlc.Core
         /// <returns>当前音量</returns>
         public int GetVolume()
         {
-            if (_mediaPlayer == IntPtr.Zero)
-                return 0;
-            
-            try
+            lock (_lifecycleLock)
             {
-                return LibVLCWrapper.libvlc_audio_get_volume(_mediaPlayer);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"获取音量失败: {ex.Message}");
-                return 0;
+                if (IsDisposed || _mediaPlayer == IntPtr.Zero)
+                    return 0;
+
+                try
+                {
+                    return LibVLCWrapper.libvlc_audio_get_volume(_mediaPlayer);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"获取音量失败: {ex.Message}");
+                    return 0;
+                }
             }
         }
 
@@ -532,26 +691,34 @@ namespace yan.libvlc.Core
         /// </summary>
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref _disposeState, 1) != 0)
+                return;
+
             try
             {
-                // 标记为取消
-                _cancel = true;
-                _isRunning = false;
+                StopTrackReader();
 
-                // 确保停止播放
-                try
+                lock (_lifecycleLock)
                 {
-                    if (_mediaPlayer != IntPtr.Zero)
+                    try
                     {
-                        LibVLCWrapper.libvlc_media_player_stop(_mediaPlayer);
+                        if (_mediaPlayer != IntPtr.Zero)
+                        {
+                            LibVLCWrapper.libvlc_media_player_stop(_mediaPlayer);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogError($"停止播放时发生错误: {ex.Message}");
+                    }
+
+                    lock (_callbackLock)
+                    {
+                        _acceptCallbacks = false;
                     }
                 }
-                catch (Exception ex)
-                {
-                    Debug.LogError($"停止播放时发生错误: {ex.Message}");
-                }
 
-                // 释放所有资源
+                WaitForCallbacksToDrain();
                 ReleaseResources();
             }
             catch (Exception ex)
@@ -566,7 +733,7 @@ namespace yan.libvlc.Core
         /// <returns>错误信息字符串，如果没有错误则返回空字符串</returns>
         public string GetErrorMessage()
         {
-            if (_libvlc == IntPtr.Zero)
+            if (IsDisposed || _libvlc == IntPtr.Zero)
                 return "LibVLC实例为空";
 
             IntPtr errorPtr = LibVLCWrapper.libvlc_errmsg();
@@ -581,76 +748,177 @@ namespace yan.libvlc.Core
 
         #region 私有方法
 
+        private void AllocateFrameBuffers()
+        {
+            int bufferSize;
+            try
+            {
+                bufferSize = checked(_width * _height * _channels);
+            }
+            catch (OverflowException)
+            {
+                throw new ArgumentOutOfRangeException("width/height", "视频输出分辨率过大");
+            }
+
+            if (bufferSize <= 0)
+                throw new ArgumentOutOfRangeException("width/height", "视频输出分辨率必须大于0");
+
+            _currentImage = new byte[bufferSize];
+            _backBuffer = new byte[bufferSize];
+            _imageIntPtr = Marshal.AllocHGlobal(bufferSize);
+        }
+
         /// <summary>
         /// 初始化LibVLC实例并设置媒体
         /// </summary>
         private void InitializeLibVLC(string mediaUrl, string[] customArgs)
         {
-            // 如果提供了自定义参数，使用自定义参数，否则使用默认参数
             string[] args;
-
-            // 对于网络流，添加额外的媒体选项
-            bool isNetworkStream = mediaUrl.ToLower().StartsWith("rtmp://") ||
-                                  mediaUrl.ToLower().StartsWith("rtsp://") ||
-                                  mediaUrl.ToLower().StartsWith("http://") ||
-                                  mediaUrl.ToLower().StartsWith("https://");
 
             if (customArgs != null && customArgs.Length > 0)
             {
                 args = customArgs;
-                Debug.Log($"使用自定义VLC参数: {string.Join(", ", args)}");
+                Debug.Log($"使用自定义VLC参数（{args.Length}项）");
             }
             else
             {
-                // 解析默认参数
-                args = DEFAULT_ARGS.Split(';');
-
-                if (isNetworkStream)
+                List<string> argsList = new List<string>(DEFAULT_ARGS.Split(';'));
+                if (IsNetworkStream(mediaUrl))
                 {
-                    // 优化：降低网络缓冲，减少延迟
-                    List<string> argsList = new List<string>(args);
-                    argsList.Add("--network-caching=1000");  // 从3000降低到1000ms
-                    argsList.Add("--live-caching=500");      // 直播流低延迟
-                    argsList.Add("--clock-synchro=0");       // 禁用时钟同步
-                    argsList.Add("--file-caching=300");      // 降低文件缓存
-                    args = argsList.ToArray();
-                    
-                    //Debug.Log($"检测到网络流，已添加额外的缓冲参数: {string.Join(", ", argsList)}");
+                    argsList.Add("--network-caching=1000");
+                    argsList.Add("--live-caching=500");
+                    argsList.Add("--clock-synchro=0");
                 }
-                else
-                {
-                    // 优化：本地文件优化参数
-                    List<string> argsList = new List<string>(args);
-                    argsList.Add("--file-caching=300");      // 降低本地文件缓冲
-                    args = argsList.ToArray();
-                }
+                argsList.Add("--file-caching=300");
+                args = argsList.ToArray();
             }
 
             _libvlc = LibVLCWrapper.libvlc_new(args.Length, args);
-
             if (_libvlc == IntPtr.Zero)
-            {
-                Debug.LogError("初始化LibVLC失败");
-                return;
-            }
+                throw new InvalidOperationException("初始化LibVLC失败");
 
-            _media = LibVLCWrapper.libvlc_media_new_location(_libvlc, mediaUrl);
-
+            _media = CreateMedia(mediaUrl);
             if (_media == IntPtr.Zero)
-            {
-                Debug.LogError("创建媒体失败，请检查URL是否正确");
-                return;
-            }
-            
-            // 优化6：对网络流添加额外选项
-            if (isNetworkStream && (customArgs == null || customArgs.Length == 0))
-            {
-                LibVLCWrapper.libvlc_media_add_option(_media, ":network-caching=1000");
-                LibVLCWrapper.libvlc_media_add_option(_media, ":clock-jitter=0");
-            }
+                throw new InvalidOperationException("创建媒体失败，请检查媒体地址");
+
+            if (_useDefaultMediaOptions)
+                ApplyNetworkMediaOptions(_media, mediaUrl, false);
 
             _mediaPlayer = LibVLCWrapper.libvlc_media_player_new(_libvlc);
+            if (_mediaPlayer == IntPtr.Zero)
+                throw new InvalidOperationException("创建LibVLC播放器失败");
+
             LibVLCWrapper.libvlc_media_player_set_media(_mediaPlayer, _media);
+            _mediaGeneration++;
+        }
+
+        private IntPtr CreateMedia(string mediaUrl)
+        {
+            if (Uri.TryCreate(mediaUrl, UriKind.Absolute, out Uri uri))
+            {
+                if (uri.IsFile)
+                    return LibVLCWrapper.libvlc_media_new_path(_libvlc, uri.LocalPath);
+
+                return LibVLCWrapper.libvlc_media_new_location(_libvlc, mediaUrl);
+            }
+
+            return LibVLCWrapper.libvlc_media_new_path(_libvlc, mediaUrl);
+        }
+
+        private static bool IsNetworkStream(string mediaUrl)
+        {
+            return mediaUrl.StartsWith("rtmp://", StringComparison.OrdinalIgnoreCase) ||
+                   mediaUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase) ||
+                   mediaUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                   mediaUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void ApplyNetworkMediaOptions(IntPtr media, string mediaUrl, bool lowLatency)
+        {
+            if (media == IntPtr.Zero || !IsNetworkStream(mediaUrl))
+                return;
+
+            LibVLCWrapper.libvlc_media_add_option(media, lowLatency ? ":network-caching=100" : ":network-caching=1000");
+            LibVLCWrapper.libvlc_media_add_option(media, ":clock-jitter=0");
+
+            if (lowLatency)
+            {
+                LibVLCWrapper.libvlc_media_add_option(media, ":live-caching=50");
+                LibVLCWrapper.libvlc_media_add_option(media, ":file-caching=50");
+            }
+        }
+
+        private void SwitchUrl(string newUrl, bool preserveLastFrame)
+        {
+            if (string.IsNullOrWhiteSpace(newUrl))
+                throw new ArgumentException("媒体URL不能为空", nameof(newUrl));
+
+            IntPtr newMedia;
+            lock (_lifecycleLock)
+            {
+                if (IsDisposed || _libvlc == IntPtr.Zero || _mediaPlayer == IntPtr.Zero)
+                    throw new ObjectDisposedException(nameof(VlcMediaPlayer), "播放器已经释放或LibVLC尚未初始化");
+
+                newMedia = CreateMedia(newUrl);
+                if (newMedia != IntPtr.Zero && _useDefaultMediaOptions)
+                    ApplyNetworkMediaOptions(newMedia, newUrl, preserveLastFrame);
+            }
+
+            if (newMedia == IntPtr.Zero)
+                throw new InvalidOperationException("无法创建新的媒体对象");
+
+            bool adopted = false;
+            IntPtr oldMedia = IntPtr.Zero;
+
+            try
+            {
+                if (preserveLastFrame)
+                    LibVLCWrapper.libvlc_media_parse_async(newMedia);
+
+                StopTrackReader();
+
+                int playResult;
+                lock (_lifecycleLock)
+                {
+                    if (IsDisposed || _mediaPlayer == IntPtr.Zero)
+                        throw new ObjectDisposedException(nameof(VlcMediaPlayer), "切换媒体时播放器已被释放");
+
+                    LibVLCWrapper.libvlc_media_player_stop(_mediaPlayer);
+                    LibVLCWrapper.libvlc_media_player_set_media(_mediaPlayer, newMedia);
+
+                    oldMedia = _media;
+                    _media = newMedia;
+                    adopted = true;
+                    _mediaGeneration++;
+                    _videoTrack = null;
+
+                    lock (_bufferLock)
+                    {
+                        _hasReceivedAnyImage = false;
+                        _needToUpdateTimestamp = false;
+                        _lastImageReceivedTime = Time.realtimeSinceStartup;
+                    }
+
+                    playResult = LibVLCWrapper.libvlc_media_player_play(_mediaPlayer);
+                    ApplyAudioStateLocked();
+                }
+
+                if (oldMedia != IntPtr.Zero)
+                    LibVLCWrapper.libvlc_media_release(oldMedia);
+
+                if (!preserveLastFrame)
+                    SetBlankFrame();
+
+                if (playResult != 0)
+                    throw new InvalidOperationException("切换媒体后启动播放失败");
+
+                StartTrackReader();
+            }
+            finally
+            {
+                if (!adopted)
+                    LibVLCWrapper.libvlc_media_release(newMedia);
+            }
         }
 
         /// <summary>
@@ -668,7 +936,10 @@ namespace yan.libvlc.Core
 
             // 将实例添加到静态字典
             IntPtr instancePtr = GCHandle.ToIntPtr(_gcHandle);
-            _playerInstances[instancePtr] = this;
+            lock (_playerInstancesLock)
+            {
+                _playerInstances[instancePtr] = this;
+            }
 
             LibVLCWrapper.libvlc_video_set_callbacks(
                 _mediaPlayer, 
@@ -692,140 +963,159 @@ namespace yan.libvlc.Core
         /// </summary>
         private void StartPlayback()
         {
-            LibVLCWrapper.libvlc_media_player_play(_mediaPlayer);
-            
-            if (_mute)
+            if (!Play())
+                throw new InvalidOperationException("LibVLC无法开始播放媒体");
+
+            StartTrackReader();
+        }
+
+        private void ApplyAudioStateLocked()
+        {
+            LibVLCWrapper.libvlc_audio_set_mute(_mediaPlayer, _mute ? 1 : 0);
+            if (!_mute)
             {
-                LibVLCWrapper.libvlc_audio_set_mute(_mediaPlayer, 1);
-            }
-            else
-            {
-                // 确保音量不为0
                 int currentVolume = LibVLCWrapper.libvlc_audio_get_volume(_mediaPlayer);
                 if (currentVolume <= 0)
-                {
-                    LibVLCWrapper.libvlc_audio_set_volume(_mediaPlayer, 100); // 设置默认音量100%
-                }
+                    LibVLCWrapper.libvlc_audio_set_volume(_mediaPlayer, 100);
             }
-            
-            _isRunning = true;
-            
-            Thread trackReaderThread = new Thread(TrackReaderThread);
-            trackReaderThread.IsBackground = true;
-            trackReaderThread.Start();
+        }
+
+        private void StartTrackReader()
+        {
+            StopTrackReader();
+
+            IntPtr media;
+            int generation;
+            lock (_lifecycleLock)
+            {
+                if (IsDisposed || _media == IntPtr.Zero)
+                    return;
+
+                media = _media;
+                generation = _mediaGeneration;
+                LibVLCWrapper.libvlc_media_retain(media);
+            }
+
+            CancellationTokenSource cancellation = new CancellationTokenSource();
+            Thread thread = new Thread(() => TrackReaderThread(media, generation, cancellation.Token));
+            thread.IsBackground = true;
+            thread.Name = "MSO-Player Track Reader";
+
+            lock (_trackThreadLock)
+            {
+                _trackReaderCancellation = cancellation;
+                _trackReaderThread = thread;
+            }
+
+            try
+            {
+                thread.Start();
+            }
+            catch
+            {
+                lock (_trackThreadLock)
+                {
+                    _trackReaderCancellation = null;
+                    _trackReaderThread = null;
+                }
+
+                cancellation.Dispose();
+                LibVLCWrapper.libvlc_media_release(media);
+                throw;
+            }
+        }
+
+        private void StopTrackReader()
+        {
+            CancellationTokenSource cancellation;
+            Thread thread;
+
+            lock (_trackThreadLock)
+            {
+                cancellation = _trackReaderCancellation;
+                thread = _trackReaderThread;
+                _trackReaderCancellation = null;
+                _trackReaderThread = null;
+            }
+
+            cancellation?.Cancel();
+
+            bool stopped = thread == null || !thread.IsAlive || thread == Thread.CurrentThread || thread.Join(1000);
+            if (!stopped)
+            {
+                Debug.LogWarning("等待视频轨道读取线程退出超时；保留取消令牌直到线程自行结束");
+                return;
+            }
+
+            cancellation?.Dispose();
         }
 
         /// <summary>
         /// 轨道读取线程
         /// </summary>
-        private void TrackReaderThread()
+        private void TrackReaderThread(IntPtr media, int generation, CancellationToken cancellationToken)
         {
-            // 优化：减少最大尝试次数，加快失败响应
-            const int MAX_TRACK_ATTEMPTS = 20; // 从30降低到20
+            const int MAX_TRACK_ATTEMPTS = 20;
             int trackGetAttempts = 0;
-            
-            try 
+
+            try
             {
-                // 优化：减少初始等待时间，加快首帧显示
-                Thread.Sleep(300); // 从1000ms降低到300ms
-                
-                while (_isRunning && trackGetAttempts < MAX_TRACK_ATTEMPTS && !_cancel)
+                if (cancellationToken.WaitHandle.WaitOne(300))
+                    return;
+
+                while (trackGetAttempts < MAX_TRACK_ATTEMPTS && !cancellationToken.IsCancellationRequested)
                 {
-                    try
+                    libvlc_video_track_t? track = GetVideoTrack(media);
+                    if (track.HasValue)
                     {
-                        // 检查媒体是否开始播放
-                        libvlc_state_t state = State;
-                        
-                        // 优化10：快速失败机制
-                        if (state == libvlc_state_t.libvlc_Error)
+                        lock (_lifecycleLock)
                         {
-                            Debug.LogError($"媒体播放出错，无法获取轨道信息");
-                            break;
+                            if (!IsDisposed && generation == _mediaGeneration)
+                                _videoTrack = track;
                         }
-                        
-                        libvlc_video_track_t? track = GetVideoTrack();
-
-                        if (track.HasValue)
-                        {
-                            _videoTrack = track;
-
-                            if (_width <= 0 || _height <= 0)
-                            {
-                                _width = (int)_videoTrack.Value.i_width;
-                                _height = (int)_videoTrack.Value.i_height;
-                                
-                                // 确保分辨率合理
-                                if (_width <= 0) _width = 1280;
-                                if (_height <= 0) _height = 720;
-                                
-                                // 优化：重新分配缓冲区
-                                int bufferSize = _width * _channels * _height;
-                                _currentImage = new byte[bufferSize];
-                                _backBuffer = new byte[bufferSize];
-                                
-                                LibVLCWrapper.libvlc_video_set_format(
-                                    _mediaPlayer, 
-                                    "RV24", 
-                                    (uint)_width,
-                                    (uint)_height, 
-                                    (uint)_width * (uint)_channels
-                                );
-                            }
-                            break;
-                        }
-
-                        trackGetAttempts++;
-                        
-                        // 优化：减少等待间隔，加快响应速度
-                        int sleepTime = Math.Min(50 + (30 * trackGetAttempts), 300); // 从100+50*n降低到50+30*n，上限从500降到300
-                        Thread.Sleep(sleepTime);
+                        return;
                     }
-                    catch (Exception ex)
-                    {
-                        Debug.LogError($"获取视频轨道时发生异常: {ex.Message}");
-                        Thread.Sleep(200); // 从500ms降低到200ms
-                        trackGetAttempts++;
-                    }
+
+                    trackGetAttempts++;
+                    int waitTime = Math.Min(50 + (30 * trackGetAttempts), 300);
+                    if (cancellationToken.WaitHandle.WaitOne(waitTime))
+                        return;
                 }
 
-                if (trackGetAttempts >= MAX_TRACK_ATTEMPTS)
+                lock (_lifecycleLock)
                 {
-                    string errorMsg = "已超过最大尝试获取视频轨道次数，打开失败";
-                    Debug.LogError(errorMsg);
+                    if (!IsDisposed && generation == _mediaGeneration)
+                        Debug.LogError("已超过最大尝试获取视频轨道次数，打开失败");
                 }
             }
             catch (Exception ex)
             {
-                Debug.LogError($"轨道读取线程异常: {ex.Message}");
+                if (!cancellationToken.IsCancellationRequested)
+                    Debug.LogError($"轨道读取线程异常: {ex.Message}");
+            }
+            finally
+            {
+                LibVLCWrapper.libvlc_media_release(media);
             }
         }
 
         /// <summary>
         /// 获取视频轨道信息
         /// </summary>
-        private libvlc_video_track_t? GetVideoTrack()
+        private static libvlc_video_track_t? GetVideoTrack(IntPtr media)
         {
-            if (_media == IntPtr.Zero)
-            {
-                Debug.LogError("尝试获取轨道但媒体指针为null");
+            if (media == IntPtr.Zero)
                 return null;
-            }
-            
+
             libvlc_video_track_t? videoTrack = null;
             IntPtr tracksPtr = IntPtr.Zero;
             int tracks = 0;
-            
+
             try
             {
-                tracks = LibVLCWrapper.libvlc_media_tracks_get(_media, out tracksPtr);
-                
+                tracks = LibVLCWrapper.libvlc_media_tracks_get(media, out tracksPtr);
                 if (tracksPtr == IntPtr.Zero)
-                {
                     return null;
-                }
-
-                _tracks = tracks;
-                _trackToRelease = tracksPtr;
 
                 for (int i = 0; i < tracks; i++)
                 {
@@ -839,7 +1129,6 @@ namespace yan.libvlc.Core
                         try
                         {
                             videoTrack = Marshal.PtrToStructure<libvlc_video_track_t>(track.media);
-                            // 检查宽高是否合理
                             if (videoTrack.Value.i_width == 0 || videoTrack.Value.i_height == 0)
                             {
                                 videoTrack = null;
@@ -859,6 +1148,11 @@ namespace yan.libvlc.Core
             {
                 Debug.LogError($"获取视频轨道时发生异常: {ex.Message}");
             }
+            finally
+            {
+                if (tracksPtr != IntPtr.Zero)
+                    LibVLCWrapper.libvlc_media_tracks_release(tracksPtr, tracks);
+            }
 
             return videoTrack;
         }
@@ -868,53 +1162,128 @@ namespace yan.libvlc.Core
         /// </summary>
         private void ReleaseResources()
         {
-            try
+            StopTrackReader();
+
+            lock (_lifecycleLock)
             {
-                // 从静态字典中移除实例
-                if (_gcHandle.IsAllocated)
+                try
                 {
-                    IntPtr instancePtr = GCHandle.ToIntPtr(_gcHandle);
-                    if (_playerInstances.ContainsKey(instancePtr))
-                    {
-                        _playerInstances.Remove(instancePtr);
-                    }
-                    
-                    _gcHandle.Free();
+                    if (_mediaPlayer != IntPtr.Zero)
+                        LibVLCWrapper.libvlc_media_player_stop(_mediaPlayer);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"停止LibVLC播放器时发生错误: {ex.Message}");
                 }
 
-                if (_trackToRelease != IntPtr.Zero)
+                lock (_callbackLock)
                 {
-                    LibVLCWrapper.libvlc_media_tracks_release(_trackToRelease, _tracks);
-                    _trackToRelease = IntPtr.Zero;
+                    _acceptCallbacks = false;
                 }
+            }
 
-                if (_mediaPlayer != IntPtr.Zero)
+            WaitForCallbacksToDrain();
+
+            lock (_lifecycleLock)
+            {
+                try
                 {
-                    LibVLCWrapper.libvlc_media_player_release(_mediaPlayer);
+                    if (_mediaPlayer != IntPtr.Zero)
+                        LibVLCWrapper.libvlc_media_player_release(_mediaPlayer);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"释放LibVLC播放器时发生错误: {ex.Message}");
+                }
+                finally
+                {
                     _mediaPlayer = IntPtr.Zero;
                 }
 
-                if (_media != IntPtr.Zero)
+                try
                 {
-                    LibVLCWrapper.libvlc_media_release(_media);
+                    if (_media != IntPtr.Zero)
+                        LibVLCWrapper.libvlc_media_release(_media);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"释放LibVLC媒体时发生错误: {ex.Message}");
+                }
+                finally
+                {
                     _media = IntPtr.Zero;
                 }
 
-                if (_libvlc != IntPtr.Zero)
+                try
                 {
-                    LibVLCWrapper.libvlc_release(_libvlc);
+                    if (_libvlc != IntPtr.Zero)
+                        LibVLCWrapper.libvlc_release(_libvlc);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"释放LibVLC实例时发生错误: {ex.Message}");
+                }
+                finally
+                {
                     _libvlc = IntPtr.Zero;
                 }
-
-                if (_imageIntPtr != IntPtr.Zero)
-                {
-                    Marshal.FreeHGlobal(_imageIntPtr);
-                    _imageIntPtr = IntPtr.Zero;
-                }
             }
-            catch (Exception ex)
+
+            if (_imageIntPtr != IntPtr.Zero)
             {
-                Debug.LogError($"释放VLC资源时发生错误: {ex.Message}");
+                Marshal.FreeHGlobal(_imageIntPtr);
+                _imageIntPtr = IntPtr.Zero;
+            }
+
+            if (_gcHandle.IsAllocated)
+            {
+                IntPtr instancePtr = GCHandle.ToIntPtr(_gcHandle);
+                lock (_playerInstancesLock)
+                {
+                    _playerInstances.Remove(instancePtr);
+                }
+                _gcHandle.Free();
+            }
+        }
+
+        private bool TryBeginCallback()
+        {
+            lock (_callbackLock)
+            {
+                if (!_acceptCallbacks || IsDisposed)
+                    return false;
+
+                _activeCallbacks++;
+                return true;
+            }
+        }
+
+        private void EndCallback()
+        {
+            lock (_callbackLock)
+            {
+                _activeCallbacks--;
+                if (_activeCallbacks == 0)
+                    Monitor.PulseAll(_callbackLock);
+            }
+        }
+
+        private void WaitForCallbacksToDrain()
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(2);
+            lock (_callbackLock)
+            {
+                while (_activeCallbacks > 0)
+                {
+                    TimeSpan remaining = deadline - DateTime.UtcNow;
+                    if (remaining <= TimeSpan.Zero)
+                    {
+                        Debug.LogWarning("等待LibVLC视频回调结束超时");
+                        return;
+                    }
+
+                    Monitor.Wait(_callbackLock, remaining);
+                }
             }
         }
 
@@ -923,18 +1292,16 @@ namespace yan.libvlc.Core
         /// </summary>
         private void SetBlankFrame()
         {
-            // 创建一个指定颜色的画面，这里以灰色为例 (128, 128, 128)
-            byte[] blankFrame = new byte[_width * _channels * _height];
-            for (int i = 0; i < blankFrame.Length; i += _channels)
+            lock (_bufferLock)
             {
-                blankFrame[i] = 50;     // R
-                blankFrame[i + 1] = 50; // G
-                blankFrame[i + 2] = 50; // B
-            }
+                if (_currentImage == null)
+                    return;
 
-            // 更新当前图像为空白画面
-            _currentImage = blankFrame;
-            _update = true;
+                for (int i = 0; i < _currentImage.Length; i++)
+                    _currentImage[i] = 50;
+
+                _update = true;
+            }
         }
 
         #endregion
@@ -948,9 +1315,13 @@ namespace yan.libvlc.Core
         {
             try
             {
-                if (opaque != IntPtr.Zero && _playerInstances.TryGetValue(opaque, out VlcMediaPlayer player))
+                if (opaque == IntPtr.Zero)
+                    return null;
+
+                lock (_playerInstancesLock)
                 {
-                    return player;
+                    if (_playerInstances.TryGetValue(opaque, out VlcMediaPlayer player))
+                        return player;
                 }
             }
             catch (Exception ex)
@@ -966,17 +1337,31 @@ namespace yan.libvlc.Core
         [AOT.MonoPInvokeCallback(typeof(LockCB))]
         private static IntPtr OnLockStatic(IntPtr opaque, ref IntPtr planes)
         {
+            VlcMediaPlayer player = null;
+            bool frameLeaseActive = false;
             try
             {
-                VlcMediaPlayer player = GetPlayerInstance(opaque);
-                if (player != null)
-                {
-                    return player.OnLockInstance(ref planes);
-                }
+                player = GetPlayerInstance(opaque);
+                if (player == null || !player.TryBeginCallback())
+                    return IntPtr.Zero;
+
+                frameLeaseActive = true;
+                IntPtr picture = player.OnLockInstance(ref planes);
+                if (picture == IntPtr.Zero)
+                    return IntPtr.Zero;
+
+                // 帧租约跨越LibVLC写入阶段，直到对应unlock回调才结束。
+                frameLeaseActive = false;
+                return picture;
             }
             catch (Exception ex)
             {
                 Debug.LogError($"VLC锁定回调时发生错误: {ex.Message}");
+            }
+            finally
+            {
+                if (frameLeaseActive)
+                    player.EndCallback();
             }
             return IntPtr.Zero;
         }
@@ -990,7 +1375,17 @@ namespace yan.libvlc.Core
             try
             {
                 VlcMediaPlayer player = GetPlayerInstance(opaque);
-                player?.OnUnlockInstance(picture, ref planes);
+                if (player == null)
+                    return;
+
+                try
+                {
+                    player.OnUnlockInstance(picture, ref planes);
+                }
+                finally
+                {
+                    player.EndCallback();
+                }
             }
             catch (Exception ex)
             {
@@ -1007,7 +1402,17 @@ namespace yan.libvlc.Core
             try
             {
                 VlcMediaPlayer player = GetPlayerInstance(opaque);
-                player?.OnDisplayInstance(picture);
+                if (player == null || !player.TryBeginCallback())
+                    return;
+
+                try
+                {
+                    player.OnDisplayInstance(picture);
+                }
+                finally
+                {
+                    player.EndCallback();
+                }
             }
             catch (Exception ex)
             {
@@ -1021,9 +1426,7 @@ namespace yan.libvlc.Core
         private IntPtr OnLockInstance(ref IntPtr planes)
         {
             if (_imageIntPtr == IntPtr.Zero)
-            {
-                _imageIntPtr = Marshal.AllocHGlobal(_width * _channels * _height);
-            }
+                return IntPtr.Zero;
 
             planes = _imageIntPtr;
             return _imageIntPtr;
@@ -1044,23 +1447,21 @@ namespace yan.libvlc.Core
         {
             try 
             {
-                if (!_update && picture != IntPtr.Zero)
+                if (picture == IntPtr.Zero)
+                    return;
+
+                lock (_bufferLock)
                 {
-                    // 优化1：使用双缓冲，避免每帧分配新数组
-                    lock (_bufferLock)
-                    {
-                        // 将数据复制到后台缓冲区
-                        Marshal.Copy(picture, _backBuffer, 0, _backBuffer.Length);
-                        
-                        // 交换缓冲区
-                        var temp = _currentImage;
-                        _currentImage = _backBuffer;
-                        _backBuffer = temp;
-                        
-                        _update = true;
-                    }
-                    
-                    // 标记需要在主线程更新时间戳，而不是直接调用Time.time
+                    if (_update || _backBuffer == null)
+                        return;
+
+                    Marshal.Copy(picture, _backBuffer, 0, _backBuffer.Length);
+
+                    byte[] temp = _currentImage;
+                    _currentImage = _backBuffer;
+                    _backBuffer = temp;
+
+                    _update = true;
                     _needToUpdateTimestamp = true;
                     _hasReceivedAnyImage = true;
                 }

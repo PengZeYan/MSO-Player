@@ -64,6 +64,7 @@ public class PlayerController : MonoBehaviour
     private string currentMediaUrl = string.Empty;
     private Coroutine progressUpdateCoroutine;
     private ExtendedVlcPlayer extendedPlayer;
+    private VlcMediaPlayer extendedCorePlayer;
     private float previousProgress = 0f; // 记录前一帧的进度值
     private float animationSpeed = 4f; // 进度条动画速度系数
 
@@ -226,43 +227,40 @@ public class PlayerController : MonoBehaviour
         bool newUrlIsLiveStream = IsLikelyLiveStream(url);
         
         // 如果不存在扩展播放器则初始化
-        if (extendedPlayer == null)
+        if (!EnsureExtendedPlayer())
         {
-            InitializeExtendedPlayer();
-            if (extendedPlayer == null)
-            {
-                // 如果无法初始化扩展播放器，使用常规方法切换
-                SetMediaUrl(url, true);
-                return;
-            }
+            // 如果无法初始化扩展播放器，使用常规方法切换
+            SetMediaUrl(url, true);
+            return;
         }
-        
-        // 获取扩展播放器使用的内部VLC播放器实例
-        System.Reflection.FieldInfo fieldInfo = typeof(MediaPlayer).GetField("m_Player", 
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            
-        VlcMediaPlayer vlcPlayer = fieldInfo?.GetValue(mediaPlayer) as VlcMediaPlayer;
+
+        VlcMediaPlayer vlcPlayer = mediaPlayer.CorePlayer;
         
         if (vlcPlayer != null)
         {
-            // 使用平滑切换方法
-            vlcPlayer.UpdateUrlSmooth(url, () => {
-                // 切换完成后更新UI
-                isLiveStream = newUrlIsLiveStream;
-                UpdateLiveStreamUI(isLiveStream);
-                
-                if (bufferingIndicator != null)
-                {
-                    bufferingIndicator.SetActive(false);
-                }
-                
-                // 启动分辨率和直播状态检查
-                StartCoroutine(DelayedResolutionCheck());
-                StartCoroutine(DelayedLiveStreamCheck());
-                
-                // 更新播放/暂停按钮状态
-                UpdatePlayPauseButton();
-            });
+            try
+            {
+                vlcPlayer.UpdateUrlSmooth(url);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"平滑切换失败，改用常规切换: {ex.Message}");
+                SetMediaUrl(url, true);
+                return;
+            }
+
+            // 切换成功后再更新Unity UI，避免UI异常被误判成切流失败并重复切换。
+            isLiveStream = newUrlIsLiveStream;
+            UpdateLiveStreamUI(isLiveStream);
+
+            if (bufferingIndicator != null)
+            {
+                bufferingIndicator.SetActive(false);
+            }
+
+            StartCoroutine(DelayedResolutionCheck());
+            StartCoroutine(DelayedLiveStreamCheck());
+            UpdatePlayPauseButton();
         }
         else
         {
@@ -298,11 +296,7 @@ public class PlayerController : MonoBehaviour
     /// </summary>
     public void SetVolume(float volume)
     {
-        if (extendedPlayer == null) 
-        {
-            InitializeExtendedPlayer();
-            if (extendedPlayer == null) return;
-        }
+        if (!EnsureExtendedPlayer()) return;
 
         // 将0-1的值转换为0-100的范围
         int volumeValue = Mathf.Clamp(Mathf.RoundToInt(volume * 100), 0, 100);
@@ -357,7 +351,7 @@ public class PlayerController : MonoBehaviour
     /// <param name="position">位置（0-1）</param>
     public void SeekToPosition(float position)
     {
-        if (extendedPlayer == null || isLiveStream) return;
+        if (!EnsureExtendedPlayer() || isLiveStream) return;
 
         if (extendedPlayer.IsSeekable())
         {
@@ -372,11 +366,7 @@ public class PlayerController : MonoBehaviour
     /// </summary>
     public void ToggleMute()
     {
-        if (extendedPlayer == null) 
-        {
-            InitializeExtendedPlayer();
-            if (extendedPlayer == null) return;
-        }
+        if (!EnsureExtendedPlayer()) return;
 
         bool isMuted = extendedPlayer.IsMuted();
         extendedPlayer.SetMute(!isMuted);
@@ -654,7 +644,7 @@ public class PlayerController : MonoBehaviour
         // 如果媒体已结束
         if (state == libvlc_state_t.libvlc_Ended)
         {
-            Debug.Log($"媒体播放结束，循环状态: {isLoopEnabled}，媒体URL: {currentMediaUrl}");
+            Debug.Log($"媒体播放结束，循环状态: {isLoopEnabled}");
             
             if (progressSlider != null)
             {
@@ -699,19 +689,34 @@ public class PlayerController : MonoBehaviour
     /// </summary>
     private void InitializeExtendedPlayer()
     {
-        // 获取内部VLC播放器实例
-        System.Reflection.FieldInfo fieldInfo = typeof(MediaPlayer).GetField("m_Player", 
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            
-        VlcMediaPlayer vlcPlayer = fieldInfo?.GetValue(mediaPlayer) as VlcMediaPlayer;
-        
-        if (vlcPlayer != null)
+        if (EnsureExtendedPlayer())
         {
-            extendedPlayer = new ExtendedVlcPlayer(vlcPlayer);
-            
             // 延迟检查是否为直播流，让媒体加载一段时间
             StartCoroutine(DelayedLiveStreamCheck());
         }
+    }
+
+    /// <summary>
+    /// 确保扩展播放器始终包装当前底层实例。对象池回收或错误恢复可能替换实例，
+    /// 因此不能长期缓存旧的私有字段引用。
+    /// </summary>
+    private bool EnsureExtendedPlayer()
+    {
+        VlcMediaPlayer currentCorePlayer = mediaPlayer?.CorePlayer;
+        if (currentCorePlayer == null || currentCorePlayer.IsDisposed)
+        {
+            extendedCorePlayer = null;
+            extendedPlayer = null;
+            return false;
+        }
+
+        if (!ReferenceEquals(currentCorePlayer, extendedCorePlayer))
+        {
+            extendedCorePlayer = currentCorePlayer;
+            extendedPlayer = new ExtendedVlcPlayer(currentCorePlayer);
+        }
+
+        return true;
     }
     
     /// <summary>
@@ -722,7 +727,7 @@ public class PlayerController : MonoBehaviour
         // 等待媒体加载和处理一段时间
         yield return new WaitForSeconds(2.0f);
         
-        if (extendedPlayer != null)
+        if (EnsureExtendedPlayer())
         {
             // 使用更准确的方法判断是否为直播流
             bool isActuallyLiveStream = extendedPlayer.IsLiveStream();
@@ -782,11 +787,7 @@ public class PlayerController : MonoBehaviour
     /// </summary>
     private long GetCurrentTime()
     {
-        if (extendedPlayer == null)
-        {
-            InitializeExtendedPlayer();
-            if (extendedPlayer == null) return 0;
-        }
+        if (!EnsureExtendedPlayer()) return 0;
         
         return extendedPlayer.GetTime();
     }
@@ -796,11 +797,7 @@ public class PlayerController : MonoBehaviour
     /// </summary>
     private long GetMediaDuration()
     {
-        if (extendedPlayer == null)
-        {
-            InitializeExtendedPlayer();
-            if (extendedPlayer == null) return 0;
-        }
+        if (!EnsureExtendedPlayer()) return 0;
         
         return extendedPlayer.GetLength();
     }
@@ -813,7 +810,7 @@ public class PlayerController : MonoBehaviour
         // 等待媒体加载和处理一段时间
         yield return new WaitForSeconds(2.0f);
         
-        if (extendedPlayer != null && resolutionText != null)
+        if (EnsureExtendedPlayer() && resolutionText != null)
         {
             // 尝试获取分辨率
             string resolution = extendedPlayer.GetResolutionDescription();
@@ -901,4 +898,4 @@ public class PlayerController : MonoBehaviour
     }
 
     #endregion
-} 
+}

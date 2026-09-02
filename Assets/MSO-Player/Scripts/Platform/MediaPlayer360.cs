@@ -1,13 +1,13 @@
+using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.Events;
-using System;
 using yan.libvlc.Core;
 
 namespace yan.libvlc
 {
     /// <summary>
-    /// 全景360度视频播放器组件，用于在球体上播放全景视频
+    /// 全景360度视频播放器组件，用于在球体上播放全景视频。
     /// </summary>
     [RequireComponent(typeof(MeshRenderer))]
     public class MediaPlayer360 : MonoBehaviour
@@ -17,191 +17,142 @@ namespace yan.libvlc
         [SerializeField, Tooltip("媒体URL地址")]
         private string m_Url;
 
-        [SerializeField, Min(0), Tooltip("输出分辨率宽度，≤0进行自动缩放")]
+        [SerializeField, Min(1), Tooltip("输出分辨率宽度，必须大于0")]
         private int m_Width = 1920;
 
-        [SerializeField, Min(0), Tooltip("输出分辨率高度，≤0进行自动缩放")]
+        [SerializeField, Min(1), Tooltip("输出分辨率高度，必须大于0")]
         private int m_Height = 960;
 
         [SerializeField, Tooltip("是否静音")]
-        private bool m_Mute = false;
+        private bool m_Mute;
 
         [SerializeField, Tooltip("启动时自动播放")]
         private bool m_PlayOnStart = true;
 
         [SerializeField, Tooltip("是否反转Y轴（上下翻转图像）")]
         private bool m_FlipY = true;
-        
+
         [SerializeField, Tooltip("使用Shader翻转而非CPU翻转（性能更好）")]
         private bool m_UseShaderFlip = true;
-        
-        [SerializeField, Tooltip("无视频数据最大等待时间(秒)，超过此时间将自动尝试恢复播放，0表示禁用")]
+
+        [SerializeField, Min(0), Tooltip("无视频数据最大等待时间(秒)，超过此时间将自动尝试恢复播放，0表示禁用")]
         private float m_MaxNoDataWaitTime = 5.0f;
-        
-        [SerializeField, Tooltip("检测视频流状态的时间间隔(秒)")]
+
+        [SerializeField, Min(0.1f), Tooltip("检测视频流状态的时间间隔(秒)")]
         private float m_StatusCheckInterval = 0.5f;
 
         #endregion
 
         #region 私有字段
 
+        private const int MAX_RECOVERY_ATTEMPTS = 3;
+        private const float HEALTHY_PLAYBACK_RESET_SECONDS = 10f;
+
         private Texture2D m_Texture;
         private VlcMediaPlayer m_Player;
         private MeshRenderer m_MeshRenderer;
         private Material m_Material;
         private libvlc_state_t m_CurrentMediaState;
-        private byte[] m_TempRowBuffer; // 用于Y轴反转的临时缓冲区
-        private bool m_IsInitialized = false;
-        private int m_FailedRecoveryAttempts = 0; // 记录恢复播放失败的次数
-        private const int MAX_RECOVERY_ATTEMPTS = 3; // 最大恢复尝试次数
-        private WaitForSeconds m_StatusCheckWait; // 缓存WaitForSeconds对象
-        private Coroutine m_StatusMonitorCoroutine; // 缓存监控协程
+        private byte[] m_TempRowBuffer;
+        private bool m_IsInitialized;
+        private bool m_IsDestroyed;
+        private bool m_OwnsMaterial;
+        private bool m_WasPlayingBeforeDisable;
+        private bool m_WasPlayingBeforeApplicationPause;
+        private bool m_IsRecovering;
+        private int m_FailedRecoveryAttempts;
+        private float m_HealthyPlaybackStartedAt = -1f;
+        private Coroutine m_StatusMonitorCoroutine;
+        private Coroutine m_RecoveryCoroutine;
 
         #endregion
 
         #region 公共属性与事件
 
-        /// <summary>
-        /// 当媒体播放器状态变化时触发的事件
-        /// </summary>
         public UnityAction<string> OnMediaPlayerStateEvent;
-
-        /// <summary>
-        /// 当媒体播放发生错误时触发的事件
-        /// </summary>
         public UnityAction<string> OnMediaPlayerErrorEvent;
-        
-        /// <summary>
-        /// 当播放器自动恢复播放时触发的事件
-        /// </summary>
         public UnityAction OnMediaPlayerRecoveryEvent;
 
-        /// <summary>
-        /// 获取当前媒体URL
-        /// </summary>
         public string Url => m_Url;
-
-        /// <summary>
-        /// 获取当前媒体状态
-        /// </summary>
         public libvlc_state_t CurrentMediaState => m_CurrentMediaState;
-
-        /// <summary>
-        /// 检查是否正在播放
-        /// </summary>
-        public bool IsPlaying
-        {
-            get
-            {
-                if (m_Player == null)
-                    return false;
-                return m_Player.IsPlaying();
-            }
-        }
+        public bool IsPlaying => m_Player != null && !m_Player.IsDisposed && m_Player.IsPlaying();
 
         #endregion
 
         #region Unity生命周期方法
 
-        private void Awake()
-        {
-            m_StatusCheckWait = new WaitForSeconds(m_StatusCheckInterval);
-        }
-
         private void Start()
         {
-            InitializeMeshRenderer();
-
-            if (m_PlayOnStart) 
+            if (m_PlayOnStart)
+            {
                 Play();
+                return;
+            }
+
+            try
+            {
+                InitializeMeshRenderer();
+            }
+            catch (Exception ex)
+            {
+                HandlePlayerFailure("初始化360°渲染器失败", ex);
+            }
         }
 
         private void Update()
         {
             UpdateTexture();
         }
-        
-        private void OnApplicationFocus(bool focus)
-        {
-            // 当应用程序重新获得焦点时检查播放状态
-            if (focus && m_Player != null && m_IsInitialized)
-            {
-                // 检查播放器状态，可能需要恢复播放
-                if (m_Player.State == libvlc_state_t.libvlc_Paused || 
-                    m_Player.State == libvlc_state_t.libvlc_Stopped)
-                {
-                    Debug.Log("应用程序重新获得焦点，尝试恢复播放");
-                    m_Player.Pause(); // 切换播放状态
-                }
-            }
-        }
-        
+
         private void OnApplicationPause(bool pause)
         {
-            // 当应用程序暂停时，主动暂停播放，避免资源浪费
-            if (pause && m_Player != null && m_Player.IsPlaying())
+            if (pause)
             {
-                Debug.Log("应用程序暂停，暂停播放");
-                m_Player.Pause();
+                m_WasPlayingBeforeApplicationPause = IsPlaying;
+                if (m_WasPlayingBeforeApplicationPause)
+                {
+                    m_Player.Pause();
+                }
+            }
+            else if (m_WasPlayingBeforeApplicationPause && isActiveAndEnabled)
+            {
+                m_WasPlayingBeforeApplicationPause = false;
+                ResumeCurrentPlayer();
+            }
+        }
+
+        private void OnEnable()
+        {
+            if (!m_WasPlayingBeforeDisable)
+                return;
+
+            m_WasPlayingBeforeDisable = false;
+            ResumeCurrentPlayer();
+        }
+
+        private void OnDisable()
+        {
+            m_WasPlayingBeforeDisable = IsPlaying;
+            StopStatusMonitor();
+            StopRecovery();
+
+            if (m_WasPlayingBeforeDisable)
+            {
+                try
+                {
+                    m_Player.Pause();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"360°播放器禁用时暂停失败: {ex.Message}");
+                }
             }
         }
 
         private void OnDestroy()
         {
+            m_IsDestroyed = true;
             CleanupResources();
-        }
-        
-        private void OnEnable()
-        {
-            // 界面启用时恢复播放
-            if (m_Player != null)
-            {
-                // 不管当前状态，都尝试开始播放
-                if (!m_Player.IsPlaying())
-                {
-                    Debug.Log("360°播放器界面重新启用，恢复播放");
-                    
-                    // 如果是暂停状态，使用Pause来切换状态恢复播放
-                    if (m_CurrentMediaState == libvlc_state_t.libvlc_Paused)
-                    {
-                        m_Player.Pause();
-                    }
-                    // 如果是停止或其他状态，需要重新开始播放
-                    else 
-                    {
-                        m_Player.UpdateUrl(m_Url);
-                    }
-                }
-            }
-            else if (!string.IsNullOrEmpty(m_Url))
-            {
-                // 如果播放器被释放了，重新创建
-                Debug.Log("360°播放器界面重新启用，重新创建播放器");
-                Play();
-            }
-            
-            // 如果正在监控状态，恢复监控
-            if (m_IsInitialized && m_MaxNoDataWaitTime > 0 && m_StatusMonitorCoroutine == null)
-            {
-                m_StatusMonitorCoroutine = StartCoroutine(MonitorPlayerStatus());
-            }
-        }
-        
-        private void OnDisable()
-        {
-            // 界面禁用时暂停播放，减少资源占用
-            if (m_Player != null && m_Player.IsPlaying())
-            {
-                Debug.Log("360°播放器界面被禁用，暂停播放");
-                m_Player.Pause();
-            }
-            
-            // 停止监控协程
-            if (m_StatusMonitorCoroutine != null)
-            {
-                StopCoroutine(m_StatusMonitorCoroutine);
-                m_StatusMonitorCoroutine = null;
-            }
         }
 
         #endregion
@@ -209,665 +160,571 @@ namespace yan.libvlc
         #region 公共方法
 
         /// <summary>
-        /// 设置媒体URL地址并可选择是否自动播放
+        /// 设置媒体URL地址并可选择是否自动播放。
         /// </summary>
-        /// <param name="url">媒体URL</param>
-        /// <param name="autoPlay">是否自动播放</param>
         public void SetUrl(string url, bool autoPlay = false)
         {
-            if (string.IsNullOrEmpty(url))
+            if (string.IsNullOrWhiteSpace(url))
             {
                 Debug.LogError("媒体URL不能为空");
                 return;
             }
 
             m_Url = url;
-            m_FailedRecoveryAttempts = 0; // 重置恢复尝试计数
+            m_FailedRecoveryAttempts = 0;
+            m_HealthyPlaybackStartedAt = -1f;
 
-            if (autoPlay)
+            if (!autoPlay)
+                return;
+
+            CheckEditorPlaying();
+
+            try
             {
-                CheckEditorPlaying();
-
-                if (m_Player == null)
+                if (m_Player == null || m_Player.IsDisposed)
                 {
                     Play();
+                    return;
                 }
-                else
-                {
-                    m_Player.UpdateUrl(url);
-                }
+
+                StopRecovery();
+                m_Player.UpdateUrl(url);
+                m_IsInitialized = true;
+                CreateOrResizeTexture();
+                StartStatusMonitor();
+            }
+            catch (Exception ex)
+            {
+                HandlePlayerFailure("切换360°媒体失败", ex);
             }
         }
 
         /// <summary>
-        /// 开始播放媒体
+        /// 开始或恢复播放媒体。
         /// </summary>
         public void Play()
         {
             CheckEditorPlaying();
 
-            if (string.IsNullOrEmpty(m_Url))
+            if (string.IsNullOrWhiteSpace(m_Url))
             {
                 Debug.LogError("未设置URL，无法播放");
                 return;
             }
 
-            // 释放已有资源
-            CleanupResources();
+            try
+            {
+                InitializeMeshRenderer();
 
-            // 确保材质和纹理已初始化
-            if (m_Texture == null)
-            {
-                Debug.Log($"创建360°视频纹理 ({m_Width}x{m_Height})");
-                m_Texture = new Texture2D(m_Width, m_Height, TextureFormat.RGB24, false);
-                m_Texture.wrapMode = TextureWrapMode.Repeat;
-                m_Texture.filterMode = FilterMode.Bilinear;
-            }
+                if (m_Player == null || m_Player.IsDisposed)
+                {
+                    DisposeCurrentPlayer();
+                    CreatePlayer();
+                }
+                else if (!m_Player.IsPlaying() && !m_Player.Play())
+                {
+                    throw new InvalidOperationException("LibVLC未能开始播放");
+                }
 
-            if (m_Material != null)
-            {
-                m_Material.mainTexture = m_Texture;
-                UpdateTextureScale();
+                CreateOrResizeTexture();
+                m_IsInitialized = true;
+                StartStatusMonitor();
             }
-
-            // 创建临时缓冲区（如果需要Y轴翻转）
-            if (m_FlipY && m_TempRowBuffer == null)
+            catch (Exception ex)
             {
-                m_TempRowBuffer = new byte[m_Width * 3]; // RGB24格式，每像素3字节
+                HandlePlayerFailure("启动360°媒体失败", ex);
             }
-            
-            // 创建播放器并启动监控
-            CreatePlayer();
-            
-            // 设置初始化完成标志
-            m_IsInitialized = true;
-            
-            // 启动状态监控
-            if (m_StatusMonitorCoroutine != null)
-            {
-                StopCoroutine(m_StatusMonitorCoroutine);
-            }
-            m_StatusMonitorCoroutine = StartCoroutine(MonitorPlayerStatus());
         }
 
-        /// <summary>
-        /// 停止播放媒体
-        /// </summary>
         public void Stop()
         {
             CheckEditorPlaying();
             m_Player?.Stop();
         }
 
-        /// <summary>
-        /// 暂停或恢复播放
-        /// </summary>
         public void Pause()
         {
             CheckEditorPlaying();
-            m_Player?.Pause();
+            if (m_Player != null && !m_Player.TogglePause())
+            {
+                Debug.LogWarning("360°播放器未能切换暂停状态");
+            }
         }
 
-        /// <summary>
-        /// 刷新当前播放内容
-        /// </summary>
         public void Refresh()
         {
             CheckEditorPlaying();
-            m_FailedRecoveryAttempts = 0; // 重置恢复尝试计数
+            m_FailedRecoveryAttempts = 0;
             SetUrl(m_Url, true);
         }
 
         #endregion
 
-        #region 私有方法
+        #region 初始化与纹理
 
-        /// <summary>
-        /// 初始化MeshRenderer组件
-        /// </summary>
         private void InitializeMeshRenderer()
         {
-            m_MeshRenderer = GetComponent<MeshRenderer>();
-            
             if (m_MeshRenderer == null)
             {
-                Debug.LogError("无法获取MeshRenderer组件");
-                return;
+                m_MeshRenderer = GetComponent<MeshRenderer>();
             }
 
-            // 检查是否存在共享材质
+            if (m_MeshRenderer == null)
+            {
+                throw new MissingComponentException("无法获取MeshRenderer组件");
+            }
+
+            if (m_Material != null)
+                return;
+
+            Shader shader;
             if (m_MeshRenderer.sharedMaterial == null)
             {
-                // 如果没有材质，创建一个默认的Skybox/Panoramic材质
-                Debug.LogWarning("球体对象没有设置材质，将创建默认全景材质");
-                
-                // 查找Skybox/Panoramic着色器
-                Shader panoramicShader = Shader.Find("Skybox/Panoramic");
-                
-                if (panoramicShader != null)
+                shader = Shader.Find("Skybox/Panoramic") ?? Shader.Find("Unlit/Texture") ?? Shader.Find("Standard");
+                if (shader == null)
                 {
-                    m_Material = new Material(panoramicShader);
-                    m_Material.name = "Default360Material";
+                    throw new InvalidOperationException("未找到可用于360°视频的Shader");
                 }
-                else
-                {
-                    m_Material = new Material(Shader.Find("Standard"));
-                    m_Material.name = "FallbackMaterial";
-                    Debug.LogWarning("未找到全景着色器，已创建标准材质。为获得最佳效果，请手动设置Skybox/Panoramic材质");
-                }
-                
-                m_MeshRenderer.material = m_Material;
+
+                m_Material = new Material(shader) { name = "Default360Material" };
             }
             else
             {
-                // 获取并保存材质实例，以便在不影响其他物体的情况下修改它
-                m_Material = new Material(m_MeshRenderer.sharedMaterial);
-                m_MeshRenderer.material = m_Material;
+                m_Material = new Material(m_MeshRenderer.sharedMaterial)
+                {
+                    name = m_MeshRenderer.sharedMaterial.name + " (360 Player Instance)"
+                };
             }
+
+            m_OwnsMaterial = true;
+            m_MeshRenderer.material = m_Material;
         }
 
-        /// <summary>
-        /// 创建VLC播放器实例并开始监视状态
-        /// </summary>
         private void CreatePlayer()
         {
-            // 检查分辨率
-            if (m_Width > 4096 || m_Height > 4096)
+            int width = m_Width;
+            int height = m_Height;
+
+            if (width > 4096 || height > 4096)
             {
-                Debug.LogWarning($"全景视频分辨率过高({m_Width}x{m_Height})，可能导致性能问题，已调整为合理值");
-                // 对于全景视频，设置一个合理的上限值
-                if (m_Width > 4096) m_Width = 4096;
-                if (m_Height > 4096) m_Height = 2048;
+                width = Mathf.Min(width, 4096);
+                height = Mathf.Min(height, 2048);
+                Debug.LogWarning($"全景视频输出分辨率过高，已限制为 {width}x{height}");
             }
-            
-            Debug.Log($"正在创建360度视频播放器，分辨率: {m_Width}x{m_Height}");
-            m_Player = new VlcMediaPlayer(m_Width, m_Height, m_Url, m_Mute);
-            
-            if (m_Texture == null)
-            {
-                CreateTexture();
-            }
-            
+
+            m_Player = new VlcMediaPlayer(width, height, m_Url, m_Mute);
             m_IsInitialized = true;
-            
-            if (m_StatusMonitorCoroutine != null)
-            {
-                StopCoroutine(m_StatusMonitorCoroutine);
-            }
-            m_StatusMonitorCoroutine = StartCoroutine(MonitorPlayerStatus());
+            m_CurrentMediaState = libvlc_state_t.libvlc_NothingSpecial;
         }
 
-        /// <summary>
-        /// 创建纹理并应用到MeshRenderer的材质
-        /// </summary>
-        private void CreateTexture()
+        private void CreateOrResizeTexture()
         {
-            if ((m_Width <= 0 || m_Height <= 0) && m_Player?.VideoTrack != null)
+            if (m_Player == null)
+                return;
+
+            int outputWidth = m_Player.OutputWidth;
+            int outputHeight = m_Player.OutputHeight;
+            if (outputWidth <= 0 || outputHeight <= 0)
             {
-                m_Width = (int)m_Player.VideoTrack.Value.i_width;
-                m_Height = (int)m_Player.VideoTrack.Value.i_height;
+                throw new InvalidOperationException("播放器输出分辨率无效");
             }
 
-            if (m_Width > 0 && m_Height > 0)
+            if (m_Texture == null ||
+                m_Texture.width != outputWidth ||
+                m_Texture.height != outputHeight ||
+                m_Texture.format != TextureFormat.RGB24)
             {
-                // 尝试使用非破坏性操作，如果已经有合适的纹理则重用它
-                if (m_Texture != null && 
-                    m_Texture.width == m_Width && 
-                    m_Texture.height == m_Height && 
-                    m_Texture.format == TextureFormat.RGB24)
+                if (m_Texture != null)
                 {
-                    // 纹理已存在且符合要求，重用它
-                    Debug.Log("重用现有纹理以减少内存分配");
+                    Destroy(m_Texture);
                 }
-                else
+
+                m_Texture = new Texture2D(outputWidth, outputHeight, TextureFormat.RGB24, false, false)
                 {
-                    if (m_Texture != null)
-                    {
-                        Destroy(m_Texture);
-                    }
-                    
-                    m_Texture = new Texture2D(m_Width, m_Height, TextureFormat.RGB24, false, false);
-                    
-                    // 对于全景视频，需要设置适当的包裹模式
-                    m_Texture.wrapMode = TextureWrapMode.Repeat;
-                    m_Texture.filterMode = FilterMode.Bilinear;
-                }
-                
-                // 将纹理设置到球体材质
-                if (m_Material != null)
+                    wrapMode = TextureWrapMode.Repeat,
+                    filterMode = FilterMode.Bilinear
+                };
+            }
+
+            if (m_FlipY && !m_UseShaderFlip)
+            {
+                int rowSize = checked(outputWidth * 3);
+                if (m_TempRowBuffer == null || m_TempRowBuffer.Length != rowSize)
                 {
-                    m_Material.mainTexture = m_Texture;
-                    
-                    // 设置基本的纹理属性
-                    UpdateTextureScale();
+                    m_TempRowBuffer = new byte[rowSize];
                 }
             }
             else
             {
-                Debug.LogWarning("无法创建纹理：宽度或高度无效");
+                m_TempRowBuffer = null;
             }
+
+            m_Material.mainTexture = m_Texture;
+            UpdateTextureScale();
         }
 
-        /// <summary>
-        /// 更新纹理的基本设置
-        /// </summary>
         private void UpdateTextureScale()
         {
-            if (m_Material != null)
+            if (m_Material == null)
+                return;
+
+            if (m_FlipY && m_UseShaderFlip)
             {
-                // 使用Shader翻转时设置纹理缩放
-                if (m_FlipY && m_UseShaderFlip)
-                {
-                    // 通过纹理缩放实现Y轴翻转（GPU处理，零CPU开销）
-                    m_Material.mainTextureScale = new Vector2(1, -1);
-                    m_Material.mainTextureOffset = new Vector2(0, 1);
-                }
-                else
-                {
-                    // 使用默认纹理设置
-                    m_Material.mainTextureScale = new Vector2(1, 1);
-                    m_Material.mainTextureOffset = new Vector2(0, 0);
-                }
-                
-                // 调整材质的属性以优化渲染
-                if (m_Material.HasProperty("_Mapping"))
-                {
-                    // Skybox/Panoramic着色器中的映射模式设置为LatLong映射
-                    m_Material.SetFloat("_Mapping", 1); // 1 对应 LatLong映射
-                }
-                
-                if (m_Material.HasProperty("_Layout"))
-                {
-                    // 设置为全景布局
-                    m_Material.SetFloat("_Layout", 0); // 0 对应 全景布局
-                }
+                m_Material.mainTextureScale = new Vector2(1, -1);
+                m_Material.mainTextureOffset = new Vector2(0, 1);
+            }
+            else
+            {
+                m_Material.mainTextureScale = Vector2.one;
+                m_Material.mainTextureOffset = Vector2.zero;
+            }
+
+            if (m_Material.HasProperty("_Mapping"))
+            {
+                m_Material.SetFloat("_Mapping", 1);
+            }
+
+            if (m_Material.HasProperty("_Layout"))
+            {
+                m_Material.SetFloat("_Layout", 0);
             }
         }
 
-        /// <summary>
-        /// 更新纹理数据
-        /// </summary>
         private void UpdateTexture()
         {
-            if (m_Player == null || m_Texture == null)
-            {
+            if (!m_IsInitialized || m_Player == null || m_Texture == null)
                 return;
-            }
 
             try
             {
-                if (m_Player.CheckForImageUpdate(out byte[] imageData))
+                if (!m_Player.CheckForImageUpdate(out byte[] imageData))
+                    return;
+
+                int expectedSize = checked(m_Texture.width * m_Texture.height * 3);
+                if (imageData == null || imageData.Length != expectedSize)
                 {
-                    if (imageData == null || imageData.Length == 0)
-                    {
-                        Debug.LogWarning("接收到空的图像数据");
-                        return;
-                    }
-                    
-                    // 检查图像数据的大小是否与纹理尺寸匹配
-                    int expectedSize = m_Width * m_Height * 3; // RGB24 = 3字节每像素
-                    if (imageData.Length < expectedSize)
-                    {
-                        Debug.LogWarning($"图像数据大小不匹配：期望{expectedSize}字节，实际{imageData.Length}字节");
-                        return;
-                    }
-                    
-                    // 根据配置选择翻转方式
-                    if (m_FlipY && !m_UseShaderFlip)
-                    {
-                        // CPU翻转（兼容模式）
-                        FlipTextureDataVertically(imageData, m_Width, m_Height);
-                    }
-                    // 如果使用Shader翻转，则不需要CPU处理
-                    
-                    try
-                    {
-                        m_Texture.LoadRawTextureData(imageData);
-                        m_Texture.Apply(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.LogError($"更新纹理时发生错误: {ex.Message}");
-                        // 重新创建可读的纹理
-                        RecreateTexture();
-                    }
+                    Debug.LogWarning($"360°视频帧大小不匹配：期望 {expectedSize} 字节，实际 {imageData?.Length ?? 0} 字节");
+                    return;
                 }
+
+                if (m_FlipY && !m_UseShaderFlip)
+                {
+                    FlipTextureDataVertically(imageData, m_Texture.width, m_Texture.height);
+                }
+
+                m_Texture.LoadRawTextureData(imageData);
+                m_Texture.Apply(false);
             }
             catch (Exception ex)
             {
-                Debug.LogError($"处理图像数据时发生未处理异常: {ex.Message}");
+                Debug.LogError($"更新360°视频纹理失败: {ex.Message}");
             }
         }
-        
-        /// <summary>
-        /// 垂直翻转纹理数据（Y轴反转）
-        /// </summary>
-        /// <param name="imageData">图像字节数据</param>
-        /// <param name="width">图像宽度</param>
-        /// <param name="height">图像高度</param>
+
         private void FlipTextureDataVertically(byte[] imageData, int width, int height)
         {
-            int bytesPerPixel = 3; // RGB24格式为每像素3字节
-            int stride = width * bytesPerPixel;
-            
-            // 懒加载临时缓冲区，避免重复分配内存
-            if (m_TempRowBuffer == null || m_TempRowBuffer.Length < stride)
+            int stride = checked(width * 3);
+            if (m_TempRowBuffer == null || m_TempRowBuffer.Length != stride)
             {
                 m_TempRowBuffer = new byte[stride];
             }
-            
-            // 优化：只处理一半的高度，提高效率
-            int halfHeight = height / 2;
-            
-            // 避免大量小型复制操作，减少函数调用开销
-            for (int y = 0; y < halfHeight; y++)
+
+            for (int y = 0; y < height / 2; y++)
             {
                 int topRowStart = y * stride;
                 int bottomRowStart = (height - y - 1) * stride;
-                
-                // 使用高效的内存块复制
                 Buffer.BlockCopy(imageData, topRowStart, m_TempRowBuffer, 0, stride);
                 Buffer.BlockCopy(imageData, bottomRowStart, imageData, topRowStart, stride);
                 Buffer.BlockCopy(m_TempRowBuffer, 0, imageData, bottomRowStart, stride);
             }
         }
 
-        /// <summary>
-        /// 在发生纹理错误后重新创建纹理
-        /// </summary>
-        private void RecreateTexture()
+        #endregion
+
+        #region 状态监控与恢复
+
+        private void StartStatusMonitor()
         {
-            try
+            StopStatusMonitor();
+            if (isActiveAndEnabled && m_IsInitialized && m_Player != null)
             {
-                // 先销毁旧纹理
-                if (m_Texture != null)
-                {
-                    Destroy(m_Texture);
-                    m_Texture = null;
-                }
-                
-                // 创建一个明确可读的纹理
-                m_Texture = new Texture2D(m_Width, m_Height, TextureFormat.RGB24, false);
-                m_Texture.wrapMode = TextureWrapMode.Repeat;
-                m_Texture.filterMode = FilterMode.Bilinear;
-                
-                // 重新设置到材质
-                if (m_Material != null)
-                {
-                    m_Material.mainTexture = m_Texture;
-                    UpdateTextureScale();
-                }
-                
-                Debug.Log("已重新创建纹理以解决可读性问题");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"重新创建纹理时发生错误: {ex.Message}");
+                m_StatusMonitorCoroutine = StartCoroutine(MonitorPlayerStatus(m_Player));
             }
         }
 
-        /// <summary>
-        /// 监视播放器状态的协程
-        /// </summary>
-        private IEnumerator SupervisePlayerState()
+        private void StopStatusMonitor()
         {
-            while (m_Player != null)
-            {
-                libvlc_state_t state = m_Player.State;
+            if (m_StatusMonitorCoroutine == null)
+                return;
 
-                if (state != m_CurrentMediaState)
-                {
-                    m_CurrentMediaState = state;
-                    OnMediaPlayerStateEvent?.Invoke(StateToString(state));
-                    
-                    // 检测错误状态并触发错误事件
-                    if (state == libvlc_state_t.libvlc_Error)
-                    {
-                        string errorMessage = $"播放全景视频 {m_Url} 时发生错误";
-                        
-                        // 获取VLC的具体错误信息
-                        string vlcError = m_Player.GetErrorMessage();
-                        if (!string.IsNullOrEmpty(vlcError))
-                        {
-                            errorMessage += $": {vlcError}";
-                        }
-                        
-                        Debug.LogError(errorMessage);
-                        OnMediaPlayerErrorEvent?.Invoke(errorMessage);
-                        
-                        // 尝试自动恢复播放
-                        if (m_FailedRecoveryAttempts < MAX_RECOVERY_ATTEMPTS)
-                        {
-                            Debug.Log($"尝试恢复播放 (尝试 {m_FailedRecoveryAttempts+1}/{MAX_RECOVERY_ATTEMPTS})");
-                            StartCoroutine(AttemptRecovery());
-                        }
-                        else
-                        {
-                            Debug.LogWarning($"已达到最大恢复尝试次数 ({MAX_RECOVERY_ATTEMPTS})，不再自动恢复");
-                        }
-                    }
-                    else if (state == libvlc_state_t.libvlc_Playing)
-                    {
-                        // 播放成功时重置恢复计数
-                        m_FailedRecoveryAttempts = 0;
-                    }
-                }
-                
-                yield return m_StatusCheckWait;
-            }
+            StopCoroutine(m_StatusMonitorCoroutine);
+            m_StatusMonitorCoroutine = null;
         }
-        
-        /// <summary>
-        /// 监控视频数据流，检测是否长时间没有收到图像数据
-        /// </summary>
-        private IEnumerator MonitorVideoDataStream()
+
+        private IEnumerator MonitorPlayerStatus(VlcMediaPlayer monitoredPlayer)
         {
-            // 给播放器一些初始化时间
-            yield return new WaitForSeconds(1.0f);
-            
-            while (m_Player != null && m_IsInitialized)
-            {
-                // 检查是否播放中且长时间未收到图像
-                if (m_Player.IsPlaying() && m_Player.NoImageDataReceivedTime > m_MaxNoDataWaitTime)
-                {
-                    Debug.LogWarning($"已有 {m_Player.NoImageDataReceivedTime:F1} 秒没有接收到视频数据，尝试恢复播放");
-                    
-                    if (m_FailedRecoveryAttempts < MAX_RECOVERY_ATTEMPTS)
-                    {
-                        StartCoroutine(AttemptRecovery());
-                    }
-                }
-                
-                yield return m_StatusCheckWait;
-            }
-        }
-        
-        /// <summary>
-        /// 综合监控播放器状态，合并多个协程减少开销
-        /// </summary>
-        private IEnumerator MonitorPlayerStatus()
-        {
-            // 如果播放器未初始化，等待初始化
-            if (!m_IsInitialized)
-            {
-                yield return new WaitForSeconds(0.5f);
-            }
-            
-            // 使用单一协程，降低检查频率到1秒
-            WaitForSeconds wait = new WaitForSeconds(1.0f);
-            
+            WaitForSeconds wait = new WaitForSeconds(Mathf.Max(0.1f, m_StatusCheckInterval));
             libvlc_state_t previousState = libvlc_state_t.libvlc_NothingSpecial;
-            float lastDataCheckTime = Time.realtimeSinceStartup;
-            
-            while (m_Player != null && m_IsInitialized)
+
+            while (ReferenceEquals(m_Player, monitoredPlayer) &&
+                   !monitoredPlayer.IsDisposed &&
+                   m_IsInitialized)
             {
+                libvlc_state_t currentState = libvlc_state_t.libvlc_Error;
+                bool stateReadFailed = false;
                 try
                 {
-                    // 1. 状态监控
-                    libvlc_state_t currentState = m_Player.State;
-                    
-                    if (currentState != previousState)
-                    {
-                        m_CurrentMediaState = currentState;
-                        OnMediaPlayerStateEvent?.Invoke(StateToString(currentState));
-                        
-                        // 检测错误状态并触发错误事件
-                        if (currentState == libvlc_state_t.libvlc_Error)
-                        {
-                            string errorMessage = $"播放全景视频 {m_Url} 时发生错误";
-                            
-                            // 获取VLC的具体错误信息
-                            string vlcError = m_Player.GetErrorMessage();
-                            if (!string.IsNullOrEmpty(vlcError))
-                            {
-                                errorMessage += $": {vlcError}";
-                            }
-                            
-                            Debug.LogError(errorMessage);
-                            OnMediaPlayerErrorEvent?.Invoke(errorMessage);
-                            
-                            // 尝试自动恢复播放
-                            if (m_FailedRecoveryAttempts < MAX_RECOVERY_ATTEMPTS)
-                            {
-                                Debug.Log($"尝试恢复播放 (尝试 {m_FailedRecoveryAttempts+1}/{MAX_RECOVERY_ATTEMPTS})");
-                                StartCoroutine(AttemptRecovery());
-                            }
-                            else
-                            {
-                                Debug.LogWarning($"已达到最大恢复尝试次数 ({MAX_RECOVERY_ATTEMPTS})，不再自动恢复");
-                            }
-                        }
-                        else if (currentState == libvlc_state_t.libvlc_Playing)
-                        {
-                            // 播放成功时重置恢复计数
-                            m_FailedRecoveryAttempts = 0;
-                        }
-                        
-                        previousState = currentState;
-                    }
-                    
-                    // 2. 视频数据流监控（如果启用）
-                    if (m_MaxNoDataWaitTime > 0 && Time.realtimeSinceStartup - lastDataCheckTime >= 2.0f)
-                    {
-                        lastDataCheckTime = Time.realtimeSinceStartup;
-                        
-                        if (m_Player.IsPlaying() && m_Player.NoImageDataReceivedTime > m_MaxNoDataWaitTime)
-                        {
-                            Debug.LogWarning($"已有 {m_Player.NoImageDataReceivedTime:F1} 秒没有接收到视频数据，尝试恢复播放");
-                            
-                            if (m_FailedRecoveryAttempts < MAX_RECOVERY_ATTEMPTS)
-                            {
-                                StartCoroutine(AttemptRecovery());
-                            }
-                        }
-                    }
+                    currentState = monitoredPlayer.State;
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"监控播放器状态时发生异常: {ex.Message}");
+                    Debug.LogError($"读取360°播放器状态失败: {ex.Message}");
+                    RequestRecovery("状态读取异常");
+                    stateReadFailed = true;
                 }
-                
+
+                if (stateReadFailed)
+                {
+                    yield return wait;
+                    continue;
+                }
+
+                bool stateChanged = currentState != previousState;
+                if (stateChanged)
+                {
+                    m_CurrentMediaState = currentState;
+                    OnMediaPlayerStateEvent?.Invoke(StateToString(currentState));
+                    previousState = currentState;
+                }
+
+                if (currentState == libvlc_state_t.libvlc_Error && stateChanged)
+                {
+                    string errorMessage = "360°媒体播放发生错误";
+                    Debug.LogError(errorMessage);
+                    OnMediaPlayerErrorEvent?.Invoke(errorMessage);
+                    RequestRecovery("LibVLC错误状态");
+                }
+                else if (currentState == libvlc_state_t.libvlc_Playing)
+                {
+                    UpdateHealthyPlaybackWindow(monitoredPlayer);
+
+                    if (m_MaxNoDataWaitTime > 0 &&
+                        monitoredPlayer.NoImageDataReceivedTime > m_MaxNoDataWaitTime)
+                    {
+                        Debug.LogWarning($"360°播放器超过 {m_MaxNoDataWaitTime:F1} 秒未收到视频帧");
+                        RequestRecovery("视频帧超时");
+                    }
+                }
+                else
+                {
+                    m_HealthyPlaybackStartedAt = -1f;
+                }
+
                 yield return wait;
             }
-        }
-        
-        /// <summary>
-        /// 尝试恢复播放
-        /// </summary>
-        private IEnumerator AttemptRecovery()
-        {
-            m_FailedRecoveryAttempts++;
-            
-            // 通知恢复事件
-            OnMediaPlayerRecoveryEvent?.Invoke();
-            
-            // 停止当前播放
-            m_Player?.Stop();
-            
-            // 短暂等待
-            yield return new WaitForSeconds(0.5f);
-            
-            // 重新创建播放器
-            CleanupPlayer();
-            CreatePlayer();
-        }
-        
-        /// <summary>
-        /// 仅清理播放器资源，保留材质和纹理
-        /// </summary>
-        private void CleanupPlayer()
-        {
-            StopAllCoroutines();
-            
-            if (m_Player != null)
+
+            if (ReferenceEquals(m_Player, monitoredPlayer))
             {
-                m_Player.Dispose();
-                m_Player = null;
+                m_StatusMonitorCoroutine = null;
             }
         }
 
-        /// <summary>
-        /// 清理资源
-        /// </summary>
+        private void UpdateHealthyPlaybackWindow(VlcMediaPlayer monitoredPlayer)
+        {
+            bool frameFlowHealthy = m_MaxNoDataWaitTime <= 0 ||
+                                    monitoredPlayer.NoImageDataReceivedTime <= m_MaxNoDataWaitTime;
+            if (!frameFlowHealthy)
+            {
+                m_HealthyPlaybackStartedAt = -1f;
+                return;
+            }
+
+            if (m_HealthyPlaybackStartedAt < 0)
+            {
+                m_HealthyPlaybackStartedAt = Time.realtimeSinceStartup;
+            }
+            else if (Time.realtimeSinceStartup - m_HealthyPlaybackStartedAt >= HEALTHY_PLAYBACK_RESET_SECONDS)
+            {
+                m_FailedRecoveryAttempts = 0;
+            }
+        }
+
+        private void RequestRecovery(string reason)
+        {
+            if (m_IsRecovering || m_IsDestroyed || !isActiveAndEnabled || m_Player == null)
+                return;
+
+            if (m_FailedRecoveryAttempts >= MAX_RECOVERY_ATTEMPTS)
+            {
+                Debug.LogWarning($"360°播放器已达到最大恢复次数 ({MAX_RECOVERY_ATTEMPTS})，停止自动恢复");
+                return;
+            }
+
+            Debug.LogWarning($"360°播放器请求自动恢复：{reason}，第 {m_FailedRecoveryAttempts + 1}/{MAX_RECOVERY_ATTEMPTS} 次");
+            m_RecoveryCoroutine = StartCoroutine(AttemptRecovery());
+        }
+
+        private IEnumerator AttemptRecovery()
+        {
+            m_IsRecovering = true;
+            m_FailedRecoveryAttempts++;
+            m_HealthyPlaybackStartedAt = -1f;
+            OnMediaPlayerRecoveryEvent?.Invoke();
+
+            StopStatusMonitor();
+
+            try
+            {
+                m_Player?.Stop();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"360°播放器恢复前停止失败: {ex.Message}");
+            }
+
+            yield return new WaitForSeconds(0.5f);
+
+            if (m_IsDestroyed || !isActiveAndEnabled)
+            {
+                m_IsRecovering = false;
+                m_RecoveryCoroutine = null;
+                yield break;
+            }
+
+            try
+            {
+                DisposeCurrentPlayer();
+                CreatePlayer();
+                CreateOrResizeTexture();
+                StartStatusMonitor();
+            }
+            catch (Exception ex)
+            {
+                HandlePlayerFailure("自动恢复360°媒体失败", ex);
+            }
+
+            m_IsRecovering = false;
+            m_RecoveryCoroutine = null;
+        }
+
+        private void StopRecovery()
+        {
+            if (m_RecoveryCoroutine != null)
+            {
+                StopCoroutine(m_RecoveryCoroutine);
+                m_RecoveryCoroutine = null;
+            }
+
+            m_IsRecovering = false;
+        }
+
+        private void ResumeCurrentPlayer()
+        {
+            if (m_IsDestroyed || string.IsNullOrWhiteSpace(m_Url))
+                return;
+
+            if (m_Player == null || m_Player.IsDisposed)
+            {
+                Play();
+                return;
+            }
+
+            try
+            {
+                if (!m_Player.IsPlaying() && !m_Player.Resume())
+                {
+                    throw new InvalidOperationException("LibVLC未能恢复播放");
+                }
+
+                m_IsInitialized = true;
+                StartStatusMonitor();
+            }
+            catch (Exception ex)
+            {
+                HandlePlayerFailure("恢复360°媒体失败", ex);
+            }
+        }
+
+        #endregion
+
+        #region 资源清理与辅助方法
+
+        private void HandlePlayerFailure(string context, Exception ex)
+        {
+            string message = $"{context}: {ex.Message}";
+            Debug.LogError(message);
+            OnMediaPlayerErrorEvent?.Invoke(message);
+            StopStatusMonitor();
+            DisposeCurrentPlayer();
+        }
+
+        private void DisposeCurrentPlayer()
+        {
+            VlcMediaPlayer player = m_Player;
+            m_Player = null;
+            m_IsInitialized = false;
+
+            if (player == null)
+                return;
+
+            try
+            {
+                player.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"释放360°播放器失败: {ex.Message}");
+            }
+        }
+
         private void CleanupResources()
         {
-            m_IsInitialized = false;
-            StopAllCoroutines();
-            
-            if (m_Player != null)
-            {
-                m_Player.Dispose();
-                m_Player = null;
-            }
-            
+            StopRecovery();
+            StopStatusMonitor();
+            DisposeCurrentPlayer();
+
             if (m_Texture != null)
             {
                 Destroy(m_Texture);
                 m_Texture = null;
             }
-            
-            if (m_Material != null && m_Material != m_MeshRenderer.sharedMaterial)
+
+            if (m_OwnsMaterial && m_Material != null)
             {
                 Destroy(m_Material);
-                m_Material = null;
             }
-            
-            // 释放临时缓冲区
+
+            m_Material = null;
+            m_OwnsMaterial = false;
             m_TempRowBuffer = null;
         }
 
-        /// <summary>
-        /// 将播放器状态转换为可读字符串
-        /// </summary>
-        private string StateToString(libvlc_state_t state)
+        private static string StateToString(libvlc_state_t state)
         {
-            return state switch
+            switch (state)
             {
-                libvlc_state_t.libvlc_NothingSpecial => "无特殊状态",
-                libvlc_state_t.libvlc_Opening => "媒体正在打开...",
-                libvlc_state_t.libvlc_Buffering => "媒体正在缓冲...",
-                libvlc_state_t.libvlc_Playing => "媒体正在播放",
-                libvlc_state_t.libvlc_Paused => "媒体暂停播放",
-                libvlc_state_t.libvlc_Stopped => "媒体已停止播放",
-                libvlc_state_t.libvlc_Ended => "媒体已播放完毕",
-                libvlc_state_t.libvlc_Error => "发生错误，无法继续播放",
-                _ => "状态未知",
-            };
+                case libvlc_state_t.libvlc_NothingSpecial: return "无特殊状态";
+                case libvlc_state_t.libvlc_Opening: return "媒体正在打开...";
+                case libvlc_state_t.libvlc_Buffering: return "媒体正在缓冲...";
+                case libvlc_state_t.libvlc_Playing: return "媒体正在播放";
+                case libvlc_state_t.libvlc_Paused: return "媒体暂停播放";
+                case libvlc_state_t.libvlc_Stopped: return "媒体已停止播放";
+                case libvlc_state_t.libvlc_Ended: return "媒体已播放完毕";
+                case libvlc_state_t.libvlc_Error: return "发生错误，无法继续播放";
+                default: return "状态未知";
+            }
         }
 
-        /// <summary>
-        /// 检查是否在编辑器播放状态
-        /// </summary>
-        private void CheckEditorPlaying()
+        private static void CheckEditorPlaying()
         {
 #if UNITY_EDITOR
             if (!Application.isPlaying)
             {
-                throw new System.Exception("请在播放模式下调用此方法");
+                throw new InvalidOperationException("请在播放模式下调用此方法");
             }
 #endif
         }
 
         #endregion
     }
-} 
+}

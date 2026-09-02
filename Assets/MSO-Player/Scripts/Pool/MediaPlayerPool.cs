@@ -74,7 +74,7 @@ namespace yan.libvlc
         {
             public VlcMediaPlayer Player { get; private set; }
             public float EnterPoolTime { get; private set; }
-            public bool IsValid => Player != null;
+            public bool IsValid => Player != null && !Player.IsDisposed;
 
             public PooledPlayer(VlcMediaPlayer player)
             {
@@ -252,7 +252,7 @@ namespace yan.libvlc
                     try
                     {
                         // 确认播放器仍然有效
-                        bool isValid = player != null;
+                        bool isValid = player != null && !player.IsDisposed;
                         if (isValid)
                         {
                             // 尝试访问属性，如果播放器无效会抛出异常
@@ -298,7 +298,7 @@ namespace yan.libvlc
                     try
                     {
                         player.UpdateUrl(url);
-                        LogInfo($"更新播放器URL: {url}");
+                        LogInfo("已更新播放器URL");
                     }
                     catch (Exception ex)
                     {
@@ -307,6 +307,7 @@ namespace yan.libvlc
                         // 如果更新URL失败，可能是播放器已失效，需要创建新实例
                         try
                         {
+                            player.Dispose();
                             player = new VlcMediaPlayer(width, height, url, mute);
                             LogInfo($"重新创建播放器实例: {key}");
                         }
@@ -317,6 +318,16 @@ namespace yan.libvlc
                         }
                     }
                 }
+            }
+
+            // 池实例不能继承上一个使用者的音频状态。
+            if (!player.SetMute(mute))
+            {
+                LogWarning("重置播放器静音状态失败");
+            }
+            if (!mute && !player.SetVolume(100))
+            {
+                LogWarning("重置播放器音量失败");
             }
 
             // 添加到活动列表
@@ -352,6 +363,13 @@ namespace yan.libvlc
             if (player == null)
             {
                 LogWarning("尝试释放空的播放器实例");
+                return;
+            }
+
+            if (player.IsDisposed)
+            {
+                LogWarning("尝试将已释放的播放器放回对象池，已忽略");
+                RemoveFromActivePlayers(player);
                 return;
             }
 
@@ -514,7 +532,7 @@ namespace yan.libvlc
                     continue;
 
                 int originalCount = activeList.Count;
-                activeList.RemoveAll(player => player == null);
+                activeList.RemoveAll(player => player == null || player.IsDisposed);
                 int removedCount = originalCount - activeList.Count;
                 totalRemoved += removedCount;
 
@@ -527,6 +545,25 @@ namespace yan.libvlc
             if (totalRemoved > 0)
             {
                 LogInfo($"总共从活动列表中移除了 {totalRemoved} 个无效引用");
+            }
+        }
+
+        /// <summary>
+        /// 从所有活动配置中移除指定实例。调用方传入的宽高或静音状态可能已经变化，
+        /// 因此不能只依赖配置键定位实例。
+        /// </summary>
+        private void RemoveFromActivePlayers(VlcMediaPlayer player)
+        {
+            foreach (string key in new List<string>(activePlayers.Keys))
+            {
+                if (!activePlayers.TryGetValue(key, out List<VlcMediaPlayer> activeList))
+                    continue;
+
+                activeList.Remove(player);
+                if (activeList.Count == 0)
+                {
+                    activePlayers.Remove(key);
+                }
             }
         }
 
