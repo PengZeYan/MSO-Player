@@ -272,6 +272,12 @@ namespace yan.libvlc
                     }
                 }
             }
+            else if (m_Player != null)
+            {
+                // 仅设置地址时也要丢弃旧媒体，避免随后Play()继续播放旧URL。
+                CleanupResources();
+                m_IsReleased = false;
+            }
         }
 
         /// <summary>

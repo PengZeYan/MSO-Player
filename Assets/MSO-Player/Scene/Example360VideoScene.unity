@@ -680,11 +680,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 242567b5f87677648abadb7dc87dedbc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10092/hls/EasyGBS1310810000200000011513108100001310587812?sign=21OGf4c7g
+  m_Url:
   m_Width: 1920
   m_Height: 960
   m_Mute: 0
-  m_PlayOnStart: 1
+  m_PlayOnStart: 0
   m_FlipY: 1
   m_MaxNoDataWaitTime: 5
   m_StatusCheckInterval: 0.5

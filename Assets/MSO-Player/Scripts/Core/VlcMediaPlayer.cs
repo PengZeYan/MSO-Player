@@ -178,6 +178,8 @@ namespace yan.libvlc.Core
         private bool _acceptCallbacks = true;
         private int _activeCallbacks = 0;
         private int _disposeState = 0;
+        private int _resourcesReleased = 0;
+        private bool _releaseWhenCallbacksDrain = false;
         private int _mediaGeneration = 0;
         private Thread _trackReaderThread;
         private CancellationTokenSource _trackReaderCancellation;
@@ -718,7 +720,6 @@ namespace yan.libvlc.Core
                     }
                 }
 
-                WaitForCallbacksToDrain();
                 ReleaseResources();
             }
             catch (Exception ex)
@@ -1182,7 +1183,32 @@ namespace yan.libvlc.Core
                 }
             }
 
-            WaitForCallbacksToDrain();
+            if (!WaitForCallbacksToDrain())
+            {
+                bool releaseNow;
+                lock (_callbackLock)
+                {
+                    // 超时后不能释放仍可能被LibVLC访问的内存；由最后一个回调安全触发释放。
+                    _releaseWhenCallbacksDrain = true;
+                    releaseNow = _activeCallbacks == 0;
+                    if (releaseNow)
+                        _releaseWhenCallbacksDrain = false;
+                }
+
+                if (releaseNow)
+                    ThreadPool.QueueUserWorkItem(_ => ReleaseResourcesAfterCallbacks());
+
+                Debug.LogWarning("LibVLC视频回调尚未退出，延迟释放原生资源");
+                return;
+            }
+
+            ReleaseResourcesAfterCallbacks();
+        }
+
+        private void ReleaseResourcesAfterCallbacks()
+        {
+            if (Interlocked.Exchange(ref _resourcesReleased, 1) != 0)
+                return;
 
             lock (_lifecycleLock)
             {
@@ -1260,15 +1286,25 @@ namespace yan.libvlc.Core
 
         private void EndCallback()
         {
+            bool releaseResources = false;
             lock (_callbackLock)
             {
-                _activeCallbacks--;
+                if (_activeCallbacks > 0)
+                    _activeCallbacks--;
+
                 if (_activeCallbacks == 0)
+                {
                     Monitor.PulseAll(_callbackLock);
+                    releaseResources = _releaseWhenCallbacksDrain;
+                    _releaseWhenCallbacksDrain = false;
+                }
             }
+
+            if (releaseResources)
+                ThreadPool.QueueUserWorkItem(_ => ReleaseResourcesAfterCallbacks());
         }
 
-        private void WaitForCallbacksToDrain()
+        private bool WaitForCallbacksToDrain()
         {
             DateTime deadline = DateTime.UtcNow.AddSeconds(2);
             lock (_callbackLock)
@@ -1279,12 +1315,14 @@ namespace yan.libvlc.Core
                     if (remaining <= TimeSpan.Zero)
                     {
                         Debug.LogWarning("等待LibVLC视频回调结束超时");
-                        return;
+                        return false;
                     }
 
                     Monitor.Wait(_callbackLock, remaining);
                 }
             }
+
+            return true;
         }
 
         /// <summary>

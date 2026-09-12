@@ -137,7 +137,7 @@ player.SetUrl("https://example.com/panorama.mp4", true);
 ```csharp
 // 实时显示RTSP摄像头流
 MediaPlayer player = GetComponent<MediaPlayer>();
-player.SetUrl("rtsp://admin:password@192.168.1.100:554/stream");
+player.SetUrl("rtsp://example.com:554/stream");
 player.Play();
 ```
 

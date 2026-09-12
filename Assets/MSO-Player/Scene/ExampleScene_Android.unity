@@ -563,12 +563,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d0984a1ec89b9db47bcac881d1dc5589, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10092/hls/EasyGBS1310810000200000011513108100001310587812?sign=21OGf4c7g
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 1
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:

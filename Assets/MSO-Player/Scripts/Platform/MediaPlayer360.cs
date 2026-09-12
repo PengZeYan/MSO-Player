@@ -175,7 +175,13 @@ namespace yan.libvlc
             m_HealthyPlaybackStartedAt = -1f;
 
             if (!autoPlay)
+            {
+                // 仅设置地址时释放旧核心，避免随后Play()继续播放旧URL。
+                StopStatusMonitor();
+                StopRecovery();
+                DisposeCurrentPlayer();
                 return;
+            }
 
             CheckEditorPlaying();
 

@@ -172,12 +172,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10091/hls/EasyGBS1310810000200000011513108100001310266574?sign=HMaof45ng
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -270,12 +270,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10091/hls/EasyGBS1310810000200000011513108100001310812660?sign=QiICaV5nR
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -368,12 +368,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10095/hls/EasyGBS1310810000200000011513108100001310350902?sign=KFubB457R
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -466,12 +466,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10093/hls/EasyGBS1310810000200000011513108100001310997232?sign=AizQaVcnR
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -564,12 +564,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10089/hls/EasyGBS1310810000200000011513108100001310063974?sign=LcGOB4cnR
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -662,12 +662,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10087/hls/EasyGBS1310810000200000011513108100001310276137?sign=PTbTB4cnR
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -760,12 +760,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10087/hls/EasyGBS1310810000200000011513108100001310339157?sign=8Nqbf4cng
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -858,12 +858,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10089/hls/EasyGBS1310810000200000011513108100001310456091?sign=121cfVc7R
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -956,12 +956,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10093/hls/EasyGBS1310810000200000011513108100001310891353?sign=gWZuM4cng
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -1146,12 +1146,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10091/hls/EasyGBS1310810000200000011513108100001310935462?sign=LxMSBVcng
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -1244,12 +1244,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10094/hls/EasyGBS1310810000200000011513108100001310524391?sign=BSUNBV5nR
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -1347,7 +1347,7 @@ MonoBehaviour:
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -1440,12 +1440,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10093/hls/EasyGBS1310810000200000011513108100001310841278?sign=ywBuaVc7g
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -1538,12 +1538,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10088/hls/EasyGBS1310810000200000011513108100001310227404?sign=f_E2fV57g
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -1636,12 +1636,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10094/hls/EasyGBS1310810000200000011513108100001310449614?sign=tTP5f4c7g
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -1931,12 +1931,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10094/hls/EasyGBS1310810000200000011513108100001310449614?sign=tTP5f4c7g
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -2029,12 +2029,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10091/hls/EasyGBS1310810000200000011513108100001310397283?sign=FtN1f4c7g
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -2195,12 +2195,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10086/hls/EasyGBS1310810000200000011513108100001310089111?sign=aWAdBVc7R
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:
@@ -2360,12 +2360,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f212e94f412be024686dbbfc0499662c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Url: rtmp://222.222.65.164:10090/hls/EasyGBS1310810000200000011513108100001310625250?sign=yKfiBVcng
+  m_Url:
   m_Width: 1280
   m_Height: 720
   m_AutoscaleRawImage: 0
   m_Mute: 1
-  m_PlayOnAwake: 1
+  m_PlayOnAwake: 0
   m_UseObjectPool: 1
   OnPlayEvent:
     m_PersistentCalls:

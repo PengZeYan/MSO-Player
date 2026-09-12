@@ -140,7 +140,7 @@ Component for controlling the 360° panoramic camera, supporting multiple input 
 ```csharp
 // Real-time display of RTSP camera stream
 MediaPlayer player = GetComponent<MediaPlayer>();
-player.SetUrl("rtsp://admin:password@192.168.1.100:554/stream");
+player.SetUrl("rtsp://example.com:554/stream");
 player.Play();
 ```
 
